@@ -46,17 +46,32 @@ connection.onInitialize((params): InitializeResult => {
 	}
 });
 
-var funslist = [];
+class LuaSymbol {
+	type:string;
+	base:string;
+	name:string;
+	loc:Location;
+	get label():string {
+		if (this.base != null) {
+			return this.base + ":" + this.name;
+		}
+		return this.name;
+	}
+} 
+
+
 var calls = [];
-var symbols = [];
+var symbolslist = [];
+var luaSymbols = [] ;
 // The content of a text document has changed. This event is emitted
 // when the text document first opened or when its content has changed.
 documents.onDidChangeContent((change) => {
 	
 	var textContent = change.document.getText();
-	funslist = [];
+	
 	calls = [];
-	symbols = [];
+	symbolslist = [];
+	luaSymbols = [];
 	var uri = change.document.uri;
 	var tb = parser.parse(textContent, {comments:false, locations:true, ranges:true, scope:true});
  	parse2(uri, tb);
@@ -64,50 +79,124 @@ documents.onDidChangeContent((change) => {
  });
 
 
+function GetLoc(obj:any):any {
+
+	return  {
+		start:{line:obj.loc.start.line - 1,character:obj.loc.start.column},
+		end:{line:obj.loc.end.line - 1,character:obj.loc.end.column}
+	};
+}
+
+function ParseCallExpression(parent:any, tb:any) {
+	if (tb.type == "CallExpression") {
+		switch (tb.base.type) {
+			case "Identifier":
+				var name = tb.base.name;
+				var call = {
+					base: null,
+					label:name,
+					range:GetLoc(tb.base)
+				}
+				calls.push(call);
+				break;
+			case "MemberExpression":
+				var base = tb.base.base.name;
+				if (base=="self" && parent != null) {
+					if (parent.identifier.type == "MemberExpression") {
+						base = parent.identifier.base.name						
+					}
+				}
+				var name = tb.base.identifier.name;
+				var call = {
+					base: base,
+					label:name,
+					range:GetLoc(tb.base.identifier)
+				}
+				calls.push(call);
+				break;
+		}
+	}		
+}
+
+function parseFunctionBody(uri:string, parent:any, tb:any) {
+	switch (tb.type) {
+		case "CallStatement":
+
+			ParseCallExpression(parent, tb.expression)
+			
+			break;
+	}
+}
 
 function parse2(uri:string, tb:any) {
-	for (var i=0; i < tb.body.length; i++) {
-		if (tb.body[i].type=="FunctionDeclaration") {
-			var name = tb.body[i].identifier.name; 
-			if (tb.body[i].identifier.type == "MemberExpression") {
-				name = tb.body[i].identifier.base.name + tb.body[i].identifier.indexer + tb.body[i].identifier.identifier.name;
+	switch (tb.type) {
+		case "Chunk":
+			if (tb.body != null) {
+				for (var i=0; i < tb.body.length; i++) {
+					parse2(uri, tb.body[i]);
+				}
 			}
+			break;
+		case "IfStatement":
+			if (tb.clauses != null) {
+				parse2(uri, tb.clauses);
+			}
+			break;
+		case "IfClause":
+			if (tb.condition != null) {
+				parse2(uri, tb.condition);
+			}
+			if (tb.body != null) {
+				for (var i=0; i < tb.body.length; i++) {
+					parse2(uri, tb.body[i]);
+				}
+			}
+			break;
+		case "ReturnStatement":
+			break;
+		case "CallStatement":
+
+			ParseCallExpression(null, tb.expression)
+			
+			break;
+		case "FunctionDeclaration":
+			var luaSymbol = new LuaSymbol;
+			luaSymbol.type = tb.type;
+			luaSymbol.name = tb.identifier.base.name;
+			
+			
+			if (tb.identifier.type == "MemberExpression") {
+				luaSymbol.base = tb.identifier.base.name
+				luaSymbol.name = tb.identifier.identifier.name;
+				
+			}
+			luaSymbol.loc = {
+				uri:uri,
+				range:GetLoc(tb)
+			};
+			
 			var fun = {
 				uri:uri, 
-				label:name,
-				range:{
-					start:{line:tb.body[i].loc.start.line - 1,character:tb.body[i].loc.start.column},
-					end:{line:tb.body[i].loc.end.line - 1,character:tb.body[i].loc.end.column}
-				},
-				documentation:tb.body[i].parameters.toString()
+				label:luaSymbol.name,
+				range:luaSymbol.loc.uri,
+				documentation:tb.parameters.toString()
 			}
-			var symbol = {
-				name: name,
-				location: {
-					 uri: uri,
-					 range:{
-						start:{line:tb.body[i].loc.start.line - 1,character:tb.body[i].loc.start.column},
-						end:{line:tb.body[i].loc.end.line - 1,character:tb.body[i].loc.end.column}
-					},
-				}
-			}
-			symbols.push(symbol);			
-			funslist.push(fun);
-			parse2(uri, tb.body[i]);
-		} else if (tb.body[i].type=="CallStatement") {
-			var call = {
-				label:tb.body[i].expression.base.name,
-				range:{
-					start:{line:tb.body[i].expression.base.loc.start.line - 1,character:tb.body[i].expression.base.loc.start.column},
-					end:{line:tb.body[i].expression.base.loc.end.line - 1,character:tb.body[i].expression.base.loc.end.column}
-				}
-			}
-			calls.push(call);
-		} else if (tb.body[i].type=="IfStatement") {
 			
-			parse2(uri, tb.body[i].clauses[i]);
-		}
-		
+			var symbol = {
+				name: luaSymbol.label,
+				location: luaSymbol.loc
+			}
+			
+			luaSymbols.push(luaSymbol);
+			symbolslist.push(symbol);			
+			
+			if (tb.body != null) {
+				for (var i=0; i < tb.body.length; i++) {
+					parseFunctionBody(uri, tb, tb.body[i]);
+					
+				}
+			}
+			break;
 	}
 }
 // The settings interface describe the server relevant settings part
@@ -146,14 +235,14 @@ connection.onCompletion((textDocumentPosition: TextDocumentPositionParams): Comp
 	// which code complete got requested. For the example we ignore this
 	// info and always provide the same completion items.
 
-	return funslist;
+	return luaSymbols;
 	
 });
 
 connection.onDocumentSymbol((documentSymbolParams:DocumentSymbolParams): SymbolInformation[] =>{
 	
 
-  return symbols;
+  return symbolslist;
 })
 
 connection.onDefinition((textDocumentPositionParams: TextDocumentPositionParams): Location[] => {
@@ -161,19 +250,26 @@ connection.onDefinition((textDocumentPositionParams: TextDocumentPositionParams)
 	var line = textDocumentPositionParams.position.line;
 	var character = textDocumentPositionParams.position.character;
 	var label;
+	var base;
 	for (var i=0; i < calls.length; i++) {
 	 	if (calls[i].range.start.line <= line && line <= calls[i].range.end.line)
 		 {
 			 if (calls[i].range.start.character <= character && character <= calls[i].range.end.character)
 			 {
 				 label = calls[i].label;
+				 base = calls[i].base;
 				 break;
 			 }
 		 }
 	 }
-	 for (var i=0; i < funslist.length; i++) {
-		 if (funslist[i].label == label) {
-			 list.push(funslist[i]);
+	 for (var i=0; i < luaSymbols.length; i++) {
+		 if (luaSymbols[i].base == base && luaSymbols[i].name == label) {
+			 var loc = {
+				 label:luaSymbols[i].label,
+				 uri:luaSymbols[i].loc.uri,
+				 range:luaSymbols[i].loc.range,
+			 }
+			 list.push(loc);
 		 }
 	 }
 	 return list;

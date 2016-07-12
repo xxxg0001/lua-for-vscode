@@ -1,13 +1,14 @@
-# README
-## This is the README for your extension "vscode" 
-You can author your README using Visual Studio Code.  Here are some useful editor keyboard shortcuts:
+# lua for vscode
 
-* Split the editor (`Cmd+\` on OSX or `Ctrl+\` on Windows and Linux)
-* Toggle preview (`Shift+CMD+V` on OSX or `Shift+Ctrl+V` on Windows and Linux)
-* Press `Ctrl+Space` (Windows, Linux) or `Cmd+Space` (OSX) to see a list of Markdown snippets
 
-### For more information
-* [Visual Studio Code's Markdown Support](http://code.visualstudio.com/docs/languages/markdown)
-* [Markdown Syntax Reference](https://help.github.com/articles/markdown-basics/)
+Feature
+no support lua4.x  
+Goto Definition (only function )  
+List Document Symbols (now only list function)  
 
-** Enjoy!**
+https://github.com/xxxg0001/lua-for-vscode
+
+![List Document Symbols](https://github.com/xxxg0001/lua-for-vscode/blob/master/screenshot/screenshot1.png)  
+![Goto Definition](https://github.com/xxxg0001/lua-for-vscode/blob/master/screenshot/screenshot2.png)
+![Goto Definition](https://github.com/xxxg0001/lua-for-vscode/blob/master/screenshot/screenshot3.png)    
+
