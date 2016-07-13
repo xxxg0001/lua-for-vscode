@@ -73,7 +73,7 @@ documents.onDidChangeContent((change) => {
 	symbolslist = [];
 	luaSymbols = [];
 	var uri = change.document.uri;
-	var tb = parser.parse(textContent, {comments:false, locations:true, ranges:true, scope:true});
+	var tb = parser.parse(textContent, {comments:false, locations:true});
  	parse2(uri, null, tb);
 	
  });
@@ -195,12 +195,23 @@ function parse2(uri:string, parent:any, tb:any) {
 				}
 			}
 			break;
+		case "BinaryExpression":
+			if (tb.left != null) {
+				parse2(uri, parent, tb.left);
+			}
+			if (tb.right != null) {
+				parse2(uri, parent, tb.right);
+			}
+			break;
+		case "UnaryExpression":
+			if (tb.argument != null) parse2(uri, parent, tb.argument);
+			break;
 		case "FunctionDeclaration":
 			var luaSymbol = new LuaSymbol;
 			luaSymbol.type = tb.type;
-			luaSymbol.name = tb.identifier.base.name;
-			
-			
+
+			luaSymbol.name = tb.identifier.name;
+			luaSymbol.base = null
 			if (tb.identifier.type == "MemberExpression") {
 				luaSymbol.base = tb.identifier.base.name
 				luaSymbol.name = tb.identifier.identifier.name;

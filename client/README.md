@@ -1,8 +1,8 @@
 # lua for vscode
 
 
-Feature
-no support lua4.x  
+Feature  
+support some lua4.x  
 Goto Definition (only function )  
 List Document Symbols (now only list function)  
 

@@ -1,9 +1,9 @@
 {
     "name": "lua-for-vscode",
-    "description": "VSCode part of a language server",
+    "description": "support go to defintion and List Document Symbols.",
     "author": "xxxg0001@gmail.com",
     "license": "MIT",
-    "version": "0.0.4",
+    "version": "0.0.6",
     "publisher": "xxxg0001",
     "engines": {
         "vscode": "^0.10.10"
