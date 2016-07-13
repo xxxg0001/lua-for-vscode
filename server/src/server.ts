@@ -74,7 +74,7 @@ documents.onDidChangeContent((change) => {
 	luaSymbols = [];
 	var uri = change.document.uri;
 	var tb = parser.parse(textContent, {comments:false, locations:true, ranges:true, scope:true});
- 	parse2(uri, tb);
+ 	parse2(uri, null, tb);
 	
  });
 
@@ -88,76 +88,112 @@ function GetLoc(obj:any):any {
 }
 
 function ParseCallExpression(parent:any, tb:any) {
-	if (tb.type == "CallExpression") {
-		switch (tb.base.type) {
-			case "Identifier":
-				var name = tb.base.name;
-				var call = {
-					base: null,
-					label:name,
-					range:GetLoc(tb.base)
+	
+	switch (tb.base.type) {
+		case "Identifier":
+			var name = tb.base.name;
+			var call = {
+				base: null,
+				label:name,
+				range:GetLoc(tb.base)
+			}
+			calls.push(call);
+			break;
+		case "MemberExpression":
+			var base = tb.base.base.name;
+			if (base=="self" && parent != null) {
+				if (parent.identifier.type == "MemberExpression") {
+					base = parent.identifier.base.name						
 				}
-				calls.push(call);
-				break;
-			case "MemberExpression":
-				var base = tb.base.base.name;
-				if (base=="self" && parent != null) {
-					if (parent.identifier.type == "MemberExpression") {
-						base = parent.identifier.base.name						
-					}
-				}
-				var name = tb.base.identifier.name;
-				var call = {
-					base: base,
-					label:name,
-					range:GetLoc(tb.base.identifier)
-				}
-				calls.push(call);
-				break;
-		}
-	}		
-}
-
-function parseFunctionBody(uri:string, parent:any, tb:any) {
-	switch (tb.type) {
-		case "CallStatement":
-
-			ParseCallExpression(parent, tb.expression)
-			
+			}
+			var name = tb.base.identifier.name;
+			var call = {
+				base: base,
+				label:name,
+				range:GetLoc(tb.base.identifier)
+			}
+			calls.push(call);
 			break;
 	}
-}
+}		
 
-function parse2(uri:string, tb:any) {
+
+
+function parse2(uri:string, parent:any, tb:any) {
 	switch (tb.type) {
+		case "LocalStatement":
+		case "AssignmentStatement":
+			if (tb.init != null) {
+				for (var i=0; i < tb.init.length; i++) {
+					parse2(uri, parent, tb.init[i]);
+				}
+			}
+			break;
+		case "TableConstructorExpression":
+			if (tb.fields != null) {
+				for (var i=0; i < tb.fields.length; i++) {
+					parse2(uri, parent, tb.fields[i]);
+				}
+			}
+			break;
+		case "TableKeyString":
+		case "TableKey":
+			if (tb.value != null) {
+				parse2(uri, parent, tb.value);
+			}
+			break;
 		case "Chunk":
 			if (tb.body != null) {
 				for (var i=0; i < tb.body.length; i++) {
-					parse2(uri, tb.body[i]);
+					parse2(uri, null, tb.body[i]);
 				}
 			}
 			break;
 		case "IfStatement":
 			if (tb.clauses != null) {
-				parse2(uri, tb.clauses);
+				for (var i=0; i < tb.clauses.length; i++) {
+					parse2(uri, parent, tb.clauses[i]);
+				}
 			}
 			break;
 		case "IfClause":
+		case "ElseifClause":
 			if (tb.condition != null) {
-				parse2(uri, tb.condition);
+				parse2(uri, parent, tb.condition);
 			}
+		case "ElseClause":
 			if (tb.body != null) {
 				for (var i=0; i < tb.body.length; i++) {
-					parse2(uri, tb.body[i]);
+					parse2(uri, parent, tb.body[i]);
+				}
+			}
+			break;
+		case "ForNumericStatement":
+		case "ForGenericStatement":
+			if (tb.body != null) {
+				for (var i=0; i < tb.body.length; i++) {
+					parse2(uri, parent, tb.body[i]);
 				}
 			}
 			break;
 		case "ReturnStatement":
+			if (tb.arguments != null) {
+				for (var i=0; i < tb.arguments.length; i++) {
+					parse2(uri, parent, tb.arguments[i]);
+				}
+			}
 			break;
 		case "CallStatement":
-
-			ParseCallExpression(null, tb.expression)
+			parse2(uri, parent, tb.expression)
 			
+			break;
+		case "CallExpression":
+			ParseCallExpression(parent, tb)
+			if (tb.arguments != null) {
+				for (var i=0; i < tb.arguments.length; i++) {
+					parse2(uri, parent, tb.arguments[i]);
+				}
+			}
 			break;
 		case "FunctionDeclaration":
 			var luaSymbol = new LuaSymbol;
@@ -192,7 +228,7 @@ function parse2(uri:string, tb:any) {
 			
 			if (tb.body != null) {
 				for (var i=0; i < tb.body.length; i++) {
-					parseFunctionBody(uri, tb, tb.body[i]);
+					parse2(uri, tb, tb.body[i]);
 					
 				}
 			}
