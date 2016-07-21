@@ -76,7 +76,7 @@ documents.onDidChangeContent((change) => {
 	var uri = change.document.uri;
 	
 	var tb = parser.parse(textContent, {comments:false, locations:true});
-  	parse2(uri, null, tb);
+  	parse2(uri, null, tb, false);
 	
  });
 
@@ -91,11 +91,15 @@ function GetLoc(obj:any):any {
 
 
 
-function parse2(uri:string, parent:any, tb:any) {
+function parse2(uri:string, parent:any, tb:any, onlydefine:boolean) {
 	switch (tb.type) {
 		case "Identifier":
+			if (onlydefine) {
+				break;
+			}
 			var name = tb.name;
 			var call = {
+				uri: uri,
 				base: null,
 				label:name,
 				range:GetLoc(tb)
@@ -103,6 +107,9 @@ function parse2(uri:string, parent:any, tb:any) {
 			calls.push(call);
 			break;
 		case "MemberExpression":
+			if (onlydefine) {
+				break;
+			}
 			var base = tb.base.name;
 			if (base=="self" && parent != null) {
 				if (parent.identifier.type == "MemberExpression") {
@@ -111,6 +118,7 @@ function parse2(uri:string, parent:any, tb:any) {
 			}
 			var name = tb.identifier.name;
 			var call = {
+				uri: uri,
 				base: base,
 				label:name,
 				range:GetLoc(tb.identifier)
@@ -121,141 +129,132 @@ function parse2(uri:string, parent:any, tb:any) {
 		case "AssignmentStatement":
 			if (tb.init != null) {
 				for (var i=0; i < tb.init.length; i++) {
-					parse2(uri, parent, tb.init[i]);
+					parse2(uri, parent, tb.init[i], onlydefine);
 				}
 			}
 			break;
 		case "TableConstructorExpression":
 			if (tb.fields != null) {
 				for (var i=0; i < tb.fields.length; i++) {
-					parse2(uri, parent, tb.fields[i]);
+					parse2(uri, parent, tb.fields[i], onlydefine);
 				}
 			}
 			break;
 		case "TableKeyString":
 		case "TableKey":
 			if (tb.value != null) {
-				parse2(uri, parent, tb.value);
+				parse2(uri, parent, tb.value, onlydefine);
 			}
 			break;
 	
 		case "IfStatement":
 			if (tb.clauses != null) {
 				for (var i=0; i < tb.clauses.length; i++) {
-					parse2(uri, parent, tb.clauses[i]);
+					parse2(uri, parent, tb.clauses[i], onlydefine);
 				}
 			}
 			break;			
 		case "ForNumericStatement":
 			if (tb.start != null) {
-				parse2(uri, parent, tb.start);
+				parse2(uri, parent, tb.start, onlydefine);
 			}
 			if (tb.end != null) {
-				parse2(uri, parent, tb.end);
+				parse2(uri, parent, tb.end, onlydefine);
 			}
 			if (tb.body != null) {
 				for (var i=0; i < tb.body.length; i++) {
-					parse2(uri, parent, tb.body[i]);
+					parse2(uri, parent, tb.body[i], onlydefine);
 				}
 			}
 			break;
 		case "ForGenericStatement":
 			if (tb.iterators != null) {
 				for (var i=0; i < tb.iterators.length; i++) {
-					parse2(uri, parent, tb.iterators[i]);
+					parse2(uri, parent, tb.iterators[i], onlydefine);
 				}
 			}
 			if (tb.body != null) {
 				for (var i=0; i < tb.body.length; i++) {
-					parse2(uri, parent, tb.body[i]);
+					parse2(uri, parent, tb.body[i], onlydefine);
 				}
 			}
 			break;
 		case "ReturnStatement":
 			if (tb.arguments != null) {
 				for (var i=0; i < tb.arguments.length; i++) {
-					parse2(uri, parent, tb.arguments[i]);
+					parse2(uri, parent, tb.arguments[i], onlydefine);
 				}
 			}
 			break;
 		case "CallStatement":
-			parse2(uri, parent, tb.expression)
+			parse2(uri, parent, tb.expression, onlydefine)
 			
 			break;
 		case "CallExpression":
-			if (tb.base.name == "Include" || tb.base.name == "Require" || tb.base.name == "dofile") {
+			if (tb.base.name == "Include" || tb.base.name == "Require" || tb.base.name == "dofile" || tb.base.name == "require") {
 				var relpath = tb.arguments[0].value
-				var path1 = path.join(luapath, relpath)
-				if (fs.existsSync(path1)) {
-					
-					var text = fs.readFileSync(path1);
-					var uri2 = "file:///" + path1.replace("\\", "/");
-					
-					var tb2 = parser.parse(text.toString(), {comments:false, locations:true});
-					parse2(uri2, null, tb2);
-					
-					
-					
-  					
-				} else if(fs.existsSync(relpath)) {
-					var content = fs.readFileSync(relpath)
-					var tb = parser.parse(content, {comments:false, locations:true});
-  					parse2(relpath, null, tb);
+				if (relpath != null) { 
+					var path1 = path.join(luapath, relpath)
+					if (fs.existsSync(path1)) {
+						var text = fs.readFileSync(path1);
+						var uri2 = "file:///" + path1
+						var tb2 = parser.parse(text.toString(), {comments:false, locations:true});
+						parse2(uri2, null, tb2, true);  					
+					} else if(fs.existsSync(relpath)) {
+						var text = fs.readFileSync(relpath);
+						var uri2 = "file:///" + relpath
+						var tb2 = parser.parse(text.toString(), {comments:false, locations:true});
+						parse2(uri2, null, tb2, true);
+					}
 				}
 			}
-			parse2(uri, parent, tb.base)
+			parse2(uri, parent, tb.base, onlydefine)
 			if (tb.arguments != null) {
 				for (var i=0; i < tb.arguments.length; i++) {
-					parse2(uri, parent, tb.arguments[i]);
+					parse2(uri, parent, tb.arguments[i], onlydefine);
 				}
 			}
 			break;
 		case "BinaryExpression":
 		case "LogicalExpression":
 			if (tb.left != null) {
-				parse2(uri, parent, tb.left);
+				parse2(uri, parent, tb.left, onlydefine);
 			}
 			if (tb.right != null) {
-				parse2(uri, parent, tb.right);
+				parse2(uri, parent, tb.right, onlydefine);
 			}
 			break;
 		case "UnaryExpression":
-			if (tb.argument != null) parse2(uri, parent, tb.argument);
+			if (tb.argument != null) parse2(uri, parent, tb.argument, onlydefine);
 			break;
 		case "FunctionDeclaration":
 			var luaSymbol = new LuaSymbol;
 			luaSymbol.type = tb.type;
-
-			luaSymbol.name = tb.identifier.name;
-			luaSymbol.base = null
-			if (tb.identifier.type == "MemberExpression") {
-				luaSymbol.base = tb.identifier.base.name
-				luaSymbol.name = tb.identifier.identifier.name;
+			if (tb.identifier != null) {
+				luaSymbol.name = tb.identifier.name;
+				luaSymbol.base = null
+				if (tb.identifier.type == "MemberExpression") {
+					luaSymbol.base = tb.identifier.base.name
+					luaSymbol.name = tb.identifier.identifier.name;
+				}
+				luaSymbol.loc = {
+					uri:uri,
+					range:GetLoc(tb)
+				};
 				
-			}
-			luaSymbol.loc = {
-				uri:uri,
-				range:GetLoc(tb)
-			};
-			
-			var fun = {
-				uri:uri, 
-				label:luaSymbol.name,
-				range:luaSymbol.loc.uri,
-				documentation:tb.parameters.toString()
-			}
-			
-			var symbol = {
-				name: luaSymbol.label,
-				location: luaSymbol.loc
-			}
-			
-			luaSymbols.push(luaSymbol);
-			symbolslist.push(symbol);			
+				
+				var symbol = {
+					name: luaSymbol.label,
+					location: luaSymbol.loc
+				}
+				
+				luaSymbols.push(luaSymbol);
+				symbolslist.push(symbol);
+			}		
 			
 			if (tb.body != null) {
 				for (var i=0; i < tb.body.length; i++) {
-					parse2(uri, tb, tb.body[i]);
+					parse2(uri, tb, tb.body[i], onlydefine);
 					
 				}
 			}
@@ -268,14 +267,14 @@ function parse2(uri:string, parent:any, tb:any) {
 		case "ElseifClause":
 		case "ElseClause":
 			if (tb.condition != null) {
-				parse2(uri, parent, tb.condition);
+				parse2(uri, parent, tb.condition, onlydefine);
 			}
 			case "Chunk":
 		default:
 			
 			if (tb.body != null) {
 				for (var i=0; i < tb.body.length; i++) {
-					parse2(uri, null, tb.body[i]);
+					parse2(uri, null, tb.body[i], onlydefine);
 				}
 			}
 			break;
@@ -331,6 +330,8 @@ connection.onDocumentSymbol((documentSymbolParams:DocumentSymbolParams): SymbolI
 })
 
 connection.onDefinition((textDocumentPositionParams: TextDocumentPositionParams): Location[] => {
+	var range = documents
+
 	var list = [];
 	var line = textDocumentPositionParams.position.line;
 	var character = textDocumentPositionParams.position.character;
