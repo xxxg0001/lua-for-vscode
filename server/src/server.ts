@@ -13,9 +13,9 @@ import {
 } from 'vscode-languageserver';
 
 
-var parser  = require('luaparse');
-
-
+var parser  = require('@xxxg0001/luaparse');
+import * as path from 'path';
+import * as fs  from 'fs';
 
 // Create a connection for the server. The connection uses Node's IPC as a transport
 let connection: IConnection = createConnection(new IPCMessageReader(process), new IPCMessageWriter(process));
@@ -32,6 +32,7 @@ documents.listen(connection);
 let workspaceRoot: string;
 connection.onInitialize((params): InitializeResult => {
 	workspaceRoot = params.rootPath;
+	
 	return {
 		capabilities: {
 			// Tell the client that the server works in FULL text document sync mode
@@ -73,8 +74,9 @@ documents.onDidChangeContent((change) => {
 	symbolslist = [];
 	luaSymbols = [];
 	var uri = change.document.uri;
+	
 	var tb = parser.parse(textContent, {comments:false, locations:true});
- 	parse2(uri, null, tb);
+  	parse2(uri, null, tb);
 	
  });
 
@@ -87,40 +89,34 @@ function GetLoc(obj:any):any {
 	};
 }
 
-function ParseCallExpression(parent:any, tb:any) {
-	
-	switch (tb.base.type) {
+
+
+function parse2(uri:string, parent:any, tb:any) {
+	switch (tb.type) {
 		case "Identifier":
-			var name = tb.base.name;
+			var name = tb.name;
 			var call = {
 				base: null,
 				label:name,
-				range:GetLoc(tb.base)
+				range:GetLoc(tb)
 			}
 			calls.push(call);
 			break;
 		case "MemberExpression":
-			var base = tb.base.base.name;
+			var base = tb.base.name;
 			if (base=="self" && parent != null) {
 				if (parent.identifier.type == "MemberExpression") {
 					base = parent.identifier.base.name						
 				}
 			}
-			var name = tb.base.identifier.name;
+			var name = tb.identifier.name;
 			var call = {
 				base: base,
 				label:name,
-				range:GetLoc(tb.base.identifier)
+				range:GetLoc(tb.identifier)
 			}
 			calls.push(call);
 			break;
-	}
-}		
-
-
-
-function parse2(uri:string, parent:any, tb:any) {
-	switch (tb.type) {
 		case "LocalStatement":
 		case "AssignmentStatement":
 			if (tb.init != null) {
@@ -142,34 +138,33 @@ function parse2(uri:string, parent:any, tb:any) {
 				parse2(uri, parent, tb.value);
 			}
 			break;
-		case "Chunk":
-			if (tb.body != null) {
-				for (var i=0; i < tb.body.length; i++) {
-					parse2(uri, null, tb.body[i]);
-				}
-			}
-			break;
+	
 		case "IfStatement":
 			if (tb.clauses != null) {
 				for (var i=0; i < tb.clauses.length; i++) {
 					parse2(uri, parent, tb.clauses[i]);
 				}
 			}
-			break;
-		case "IfClause":
-		case "ElseifClause":
-			if (tb.condition != null) {
-				parse2(uri, parent, tb.condition);
+			break;			
+		case "ForNumericStatement":
+			if (tb.start != null) {
+				parse2(uri, parent, tb.start);
 			}
-		case "ElseClause":
+			if (tb.end != null) {
+				parse2(uri, parent, tb.end);
+			}
 			if (tb.body != null) {
 				for (var i=0; i < tb.body.length; i++) {
 					parse2(uri, parent, tb.body[i]);
 				}
 			}
 			break;
-		case "ForNumericStatement":
 		case "ForGenericStatement":
+			if (tb.iterators != null) {
+				for (var i=0; i < tb.iterators.length; i++) {
+					parse2(uri, parent, tb.iterators[i]);
+				}
+			}
 			if (tb.body != null) {
 				for (var i=0; i < tb.body.length; i++) {
 					parse2(uri, parent, tb.body[i]);
@@ -188,7 +183,27 @@ function parse2(uri:string, parent:any, tb:any) {
 			
 			break;
 		case "CallExpression":
-			ParseCallExpression(parent, tb)
+			if (tb.base.name == "Include" || tb.base.name == "Require" || tb.base.name == "dofile") {
+				var relpath = tb.arguments[0].value
+				var path1 = path.join(luapath, relpath)
+				if (fs.existsSync(path1)) {
+					
+					var text = fs.readFileSync(path1);
+					var uri2 = "file:///" + path1.replace("\\", "/");
+					
+					var tb2 = parser.parse(text.toString(), {comments:false, locations:true});
+					parse2(uri2, null, tb2);
+					
+					
+					
+  					
+				} else if(fs.existsSync(relpath)) {
+					var content = fs.readFileSync(relpath)
+					var tb = parser.parse(content, {comments:false, locations:true});
+  					parse2(relpath, null, tb);
+				}
+			}
+			parse2(uri, parent, tb.base)
 			if (tb.arguments != null) {
 				for (var i=0; i < tb.arguments.length; i++) {
 					parse2(uri, parent, tb.arguments[i]);
@@ -196,6 +211,7 @@ function parse2(uri:string, parent:any, tb:any) {
 			}
 			break;
 		case "BinaryExpression":
+		case "LogicalExpression":
 			if (tb.left != null) {
 				parse2(uri, parent, tb.left);
 			}
@@ -244,26 +260,48 @@ function parse2(uri:string, parent:any, tb:any) {
 				}
 			}
 			break;
+		
+		case "DoStatement":
+		case "RepeatStatement":
+		case "WhileStatement":
+		case "IfClause":
+		case "ElseifClause":
+		case "ElseClause":
+			if (tb.condition != null) {
+				parse2(uri, parent, tb.condition);
+			}
+			case "Chunk":
+		default:
+			
+			if (tb.body != null) {
+				for (var i=0; i < tb.body.length; i++) {
+					parse2(uri, null, tb.body[i]);
+				}
+			}
+			break;
+
 	}
 }
 // The settings interface describe the server relevant settings part
 interface Settings {
-	languageServerExample: ExampleSettings;
+	luaforvscode: LuaForVsCodeSettings;
 }
 
 // These are the example settings we defined in the client's package.json
 // file
-interface ExampleSettings {
-	maxNumberOfProblems: number;
+interface LuaForVsCodeSettings {
+	luapath: string;
 }
 
 // hold the maxNumberOfProblems setting
-let maxNumberOfProblems: number;
+let luapath: string;
 // The settings have changed. Is send on server activation
 // as well.
 connection.onDidChangeConfiguration((change) => {
+	
 	let settings = <Settings>change.settings;
-	maxNumberOfProblems = settings.languageServerExample.maxNumberOfProblems || 100;
+	luapath = settings.luaforvscode.luapath
+	
 	// Revalidate any open text documents
 	
 });

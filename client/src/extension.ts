@@ -5,8 +5,7 @@
 'use strict';
 
 import * as path from 'path';
-
-import { workspace, Disposable, ExtensionContext } from 'vscode';
+import { Uri, workspace, Disposable, ExtensionContext } from 'vscode';
 import { LanguageClient, LanguageClientOptions, SettingMonitor, ServerOptions, TransportKind } from 'vscode-languageclient';
 
 export function activate(context: ExtensionContext) {
@@ -29,7 +28,7 @@ export function activate(context: ExtensionContext) {
 		documentSelector: ['lua'],
 		synchronize: {
 			// Synchronize the setting section 'languageServerExample' to the server
-			configurationSection: 'languageServerExample',
+			configurationSection: 'luaforvscode',
 			// Notify the server about file changes to '.clientrc files contain in the workspace
 			fileEvents: workspace.createFileSystemWatcher('**/.clientrc')
 		}
@@ -37,7 +36,8 @@ export function activate(context: ExtensionContext) {
 	
 	// Create the language client and start the client.
 	let disposable = new LanguageClient('Language Server Example', serverOptions, clientOptions).start();
-	
+	let uri = Uri.parse(`C:\\Users\\zhongchaolong\\Documents\\JX\\CTC\\GameRes\\script\\test2.lua`);
+	console.log(uri)
 	// Push the disposable to the context's subscriptions so that the 
 	// client can be deactivated on extension deactivation
 	context.subscriptions.push(disposable);

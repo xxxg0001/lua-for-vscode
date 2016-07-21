@@ -9,7 +9,7 @@
   },
   "dependencies": {
     "vscode-languageserver": "^2.2.0",
-    "luaparse": "^0.2.1"
+    "@xxxg0001/luaparse": "^0.2.2"
   },
   "devDependencies": {
     "typescript": "^1.8.9"
