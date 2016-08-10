@@ -3,14 +3,22 @@
     "description": "support go to defintion and List Document Symbols.",
     "author": "xxxg0001@gmail.com",
     "license": "MIT",
-    "version": "0.0.8",
+    "version": "0.0.12",
     "publisher": "xxxg0001",
     "engines": {
         "vscode": "^0.10.10"
     },
     "categories": [
-        "Other"
+        "Languages"
     ],
+     "icon": "icon.png",
+     "repository": {
+        "type": "git",
+        "url": "https://github.com/xxxg0001/lua-for-vscode"
+    },
+    "bugs": {
+        "url": "https://github.com/xxxg0001/lua-for-vscode/issues"
+    },
     "activationEvents": [
         "onLanguage:lua"
     ],

@@ -64,6 +64,11 @@ class LuaSymbol {
 var calls = [];
 var symbolslist = [];
 var luaSymbols = [] ;
+var IncludeKeyWords:{ [key:string]:boolean; } = {
+
+	
+};  
+	
 // The content of a text document has changed. This event is emitted
 // when the text document first opened or when its content has changed.
 documents.onDidChangeContent((change) => {
@@ -88,7 +93,6 @@ function GetLoc(obj:any):any {
 		end:{line:obj.loc.end.line - 1,character:obj.loc.end.column}
 	};
 }
-
 
 
 function parse2(uri:string, parent:any, tb:any, onlydefine:boolean) {
@@ -191,15 +195,21 @@ function parse2(uri:string, parent:any, tb:any, onlydefine:boolean) {
 			
 			break;
 		case "CallExpression":
-			if (tb.base.name == "Include" || tb.base.name == "Require" || tb.base.name == "dofile" || tb.base.name == "require") {
+			if (IncludeKeyWords[tb.base.name] == true) {
 				var relpath = tb.arguments[0].value
 				if (relpath != null) { 
-					var path1 = path.join(luapath, relpath)
+					var path1 = path.join(luapath, relpath);
+					var path2 = path.join(workspaceRoot, relpath);
 					if (fs.existsSync(path1)) {
 						var text = fs.readFileSync(path1);
 						var uri2 = "file:///" + path1
 						var tb2 = parser.parse(text.toString(), {comments:false, locations:true});
 						parse2(uri2, null, tb2, true);  					
+					} else if(fs.existsSync(path2)) {
+						var text = fs.readFileSync(path2);
+						var uri2 = "file:///" + path2
+						var tb2 = parser.parse(text.toString(), {comments:false, locations:true});
+						parse2(uri2, null, tb2, true);
 					} else if(fs.existsSync(relpath)) {
 						var text = fs.readFileSync(relpath);
 						var uri2 = "file:///" + relpath
@@ -265,16 +275,16 @@ function parse2(uri:string, parent:any, tb:any, onlydefine:boolean) {
 		case "WhileStatement":
 		case "IfClause":
 		case "ElseifClause":
-		case "ElseClause":
 			if (tb.condition != null) {
 				parse2(uri, parent, tb.condition, onlydefine);
 			}
-			case "Chunk":
+		case "ElseClause":
+		case "Chunk":
 		default:
 			
 			if (tb.body != null) {
 				for (var i=0; i < tb.body.length; i++) {
-					parse2(uri, null, tb.body[i], onlydefine);
+					parse2(uri, parent, tb.body[i], onlydefine);
 				}
 			}
 			break;
@@ -290,16 +300,34 @@ interface Settings {
 // file
 interface LuaForVsCodeSettings {
 	luapath: string;
+	includekeyword: string;
 }
 
 // hold the maxNumberOfProblems setting
 let luapath: string;
+
 // The settings have changed. Is send on server activation
 // as well.
 connection.onDidChangeConfiguration((change) => {
 	
 	let settings = <Settings>change.settings;
-	luapath = settings.luaforvscode.luapath
+	luapath = settings.luaforvscode.luapath;
+	let includekeyword:string = settings.luaforvscode.includekeyword;
+	let includeKeyWords = includekeyword.split(",");
+	
+	if (includeKeyWords.length > 0) {
+		IncludeKeyWords = {};
+		for (var  keyword of includeKeyWords) {
+			IncludeKeyWords[keyword] = true;
+		}
+	} else {
+		IncludeKeyWords = {};
+		IncludeKeyWords["Include"] = true
+		IncludeKeyWords["Require"] = true
+		IncludeKeyWords["dofile"] = true
+		IncludeKeyWords["include"] = true
+	}
+	
 	
 	// Revalidate any open text documents
 	
@@ -309,7 +337,7 @@ connection.onDidChangeConfiguration((change) => {
 
 connection.onDidChangeWatchedFiles((change) => {
 	// Monitored files have change in VSCode
-	connection.console.log('We recevied an file change event');
+	//connection.console.log('We recevied an file change event');
 });
 
 
@@ -330,7 +358,7 @@ connection.onDocumentSymbol((documentSymbolParams:DocumentSymbolParams): SymbolI
 })
 
 connection.onDefinition((textDocumentPositionParams: TextDocumentPositionParams): Location[] => {
-	var range = documents
+	// var range = documents
 
 	var list = [];
 	var line = textDocumentPositionParams.position.line;
@@ -366,16 +394,7 @@ connection.onDefinition((textDocumentPositionParams: TextDocumentPositionParams)
 // This handler resolve additional information for the item selected in
 // the completion list.
 connection.onCompletionResolve((item: CompletionItem): CompletionItem => {
-	if (item.data === 1) {
-		item.detail = 'TypeScript details',
-		item.documentation = 'TypeScript documentation'
-	} else if (item.data === 2) {
-		item.detail = 'JavaScript details',
-		item.documentation = 'JavaScript documentation'
-	}  else if (item.data === 3) {
-		item.detail = 'Fun details',
-		item.documentation = 'Fun documentation'
-	}
+	
 	return item;
 });
 
