@@ -13,6 +13,7 @@ import {
 } from 'vscode-languageserver';
 
 
+
 var parser  = require('@xxxg0001/luaparse');
 import * as path from 'path';
 import * as fs  from 'fs';
@@ -61,29 +62,60 @@ class LuaSymbol {
 } 
 
 
-var calls = [];
-var symbolslist = [];
-var luaSymbols = [] ;
-var IncludeKeyWords:{ [key:string]:boolean; } = {
+class LuaFile {
+	uri:string;
+	dependency:string[];
+	calls:any[];
+	symbolslist:any[];
+	luaSymbols:any[];
 
-	
-};  
+	constructor(_uri:string) {
+		this.uri = _uri;
+		this.reset();
+	}
+
+	reset() {
+		this.dependency = [];
+		this.calls = [];
+		this.symbolslist = [];
+		this.luaSymbols = [];
+	}
+}
+
+var IncludeKeyWords:{ [key:string]:boolean; } = {};  
+var filesParsed:{ [key:string]:LuaFile; } = {};
+
 	
 // The content of a text document has changed. This event is emitted
 // when the text document first opened or when its content has changed.
 documents.onDidChangeContent((change) => {
-	
+
 	var textContent = change.document.getText();
-	
-	calls = [];
-	symbolslist = [];
-	luaSymbols = [];
-	var uri = change.document.uri;
-	
 	var tb = parser.parse(textContent, {comments:false, locations:true});
-  	parse2(uri, null, tb, false);
+
+	var uri = uniformPath(change.document.uri);
+
+	var luaFile = filesParsed[uri];
+	if( !luaFile) {
+		luaFile = new LuaFile(uri);
+		filesParsed[uri] = luaFile;
+	}
+	else {
+		luaFile.reset();
+	}
 	
+	parse2(uri, null, tb, false);
  });
+
+
+ function uniformPath(pathUri:string):string {
+	 var uri:string = decodeURIComponent(pathUri);
+	 uri = uri.replace(/\w:/g, (matchedStr) => {
+		 return matchedStr.toLowerCase();
+	 });
+	 uri = uri.replace(/\\/g, '/');
+	 return uri;
+ }
 
 
 function GetLoc(obj:any):any {
@@ -92,6 +124,40 @@ function GetLoc(obj:any):any {
 		start:{line:obj.loc.start.line - 1,character:obj.loc.start.column},
 		end:{line:obj.loc.end.line - 1,character:obj.loc.end.column}
 	};
+}
+
+
+function getLuaSymbolsRecursively(uri:string):LuaSymbol[] {
+	var luaFile:LuaFile = filesParsed[uri];
+	if( !luaFile) return [];
+
+	var luaSymbols:LuaSymbol[] = luaFile.luaSymbols;
+	luaFile.dependency.forEach(element => {
+		var dependencySymbols:LuaSymbol[] = getLuaSymbolsRecursively(element);
+		luaSymbols = luaSymbols.concat(dependencySymbols);
+	});
+
+	return luaSymbols;
+}
+
+
+function parseDependency(parentUri:string, dependencyPath:string) {
+	var text = fs.readFileSync(dependencyPath);
+	var uri2 = "file:///" + dependencyPath;
+	uri2 = uniformPath(uri2);
+
+	var luaFile:LuaFile = filesParsed[uri2];
+	if( !luaFile) {
+		luaFile = new LuaFile(uri2);
+		filesParsed[uri2] = luaFile;
+
+		var tb2 = parser.parse(text.toString(), {comments:false, locations:true});
+		parse2(uri2, null, tb2, true);
+	}
+
+	luaFile = filesParsed[parentUri];
+	if(luaFile.dependency.indexOf(uri2) < 0)
+		luaFile.dependency.push(uri2);
 }
 
 
@@ -108,7 +174,7 @@ function parse2(uri:string, parent:any, tb:any, onlydefine:boolean) {
 				label:name,
 				range:GetLoc(tb)
 			}
-			calls.push(call);
+			filesParsed[uri].calls.push(call);
 			break;
 		case "MemberExpression":
 			if (onlydefine) {
@@ -127,7 +193,7 @@ function parse2(uri:string, parent:any, tb:any, onlydefine:boolean) {
 				label:name,
 				range:GetLoc(tb.identifier)
 			}
-			calls.push(call);
+			filesParsed[uri].calls.push(call);
 			break;
 		case "LocalStatement":
 		case "AssignmentStatement":
@@ -196,25 +262,21 @@ function parse2(uri:string, parent:any, tb:any, onlydefine:boolean) {
 			break;
 		case "CallExpression":
 			if (IncludeKeyWords[tb.base.name] == true) {
-				var relpath = tb.arguments[0].value
+				var relpath:string = tb.arguments[0].value;
+				if(tb.base.name == "require") {
+					relpath = relpath.replace(/\./g, path.sep);
+					relpath = path.normalize(relpath);
+					relpath = relpath.concat(".lua");
+				}
 				if (relpath != null) { 
 					var path1 = path.join(luapath, relpath);
 					var path2 = path.join(workspaceRoot, relpath);
 					if (fs.existsSync(path1)) {
-						var text = fs.readFileSync(path1);
-						var uri2 = "file:///" + path1
-						var tb2 = parser.parse(text.toString(), {comments:false, locations:true});
-						parse2(uri2, null, tb2, true);  					
+						parseDependency(uri, path1);				
 					} else if(fs.existsSync(path2)) {
-						var text = fs.readFileSync(path2);
-						var uri2 = "file:///" + path2
-						var tb2 = parser.parse(text.toString(), {comments:false, locations:true});
-						parse2(uri2, null, tb2, true);
+						parseDependency(uri, path2);
 					} else if(fs.existsSync(relpath)) {
-						var text = fs.readFileSync(relpath);
-						var uri2 = "file:///" + relpath
-						var tb2 = parser.parse(text.toString(), {comments:false, locations:true});
-						parse2(uri2, null, tb2, true);
+						parseDependency(uri, relpath);
 					}
 				}
 			}
@@ -258,8 +320,8 @@ function parse2(uri:string, parent:any, tb:any, onlydefine:boolean) {
 					location: luaSymbol.loc
 				}
 				
-				luaSymbols.push(luaSymbol);
-				symbolslist.push(symbol);
+				filesParsed[uri].luaSymbols.push(luaSymbol);
+				filesParsed[uri].symbolslist.push(symbol);
 			}		
 			
 			if (tb.body != null) {
@@ -346,15 +408,29 @@ connection.onCompletion((textDocumentPosition: TextDocumentPositionParams): Comp
 	// The pass parameter contains the position of the text document in 
 	// which code complete got requested. For the example we ignore this
 	// info and always provide the same completion items.
+	var uri = uniformPath(textDocumentPosition.textDocument.uri);
+	var luaSymbols = getLuaSymbolsRecursively(uri);
+	var luaSymbolsUnduplicated = {};
+	luaSymbols.forEach(element => {
+		luaSymbolsUnduplicated[element.label] = {label:element.label};
+	});
 
-	return luaSymbols;
+	var completionList:CompletionItem[] = [];
+	for (var key in luaSymbolsUnduplicated) {
+		completionList.push(luaSymbolsUnduplicated[key]);
+	}
 	
+	return completionList;
+
 });
 
 connection.onDocumentSymbol((documentSymbolParams:DocumentSymbolParams): SymbolInformation[] =>{
-	
+	var symbolslist = [];
+	var uri = uniformPath(documentSymbolParams.textDocument.uri);
+	var luaFile:LuaFile = filesParsed[uri];
+	if(luaFile) symbolslist = luaFile.symbolslist;
 
-  return symbolslist;
+  	return symbolslist;
 })
 
 connection.onDefinition((textDocumentPositionParams: TextDocumentPositionParams): Location[] => {
@@ -365,6 +441,13 @@ connection.onDefinition((textDocumentPositionParams: TextDocumentPositionParams)
 	var character = textDocumentPositionParams.position.character;
 	var label;
 	var base;
+
+	var uri = uniformPath(textDocumentPositionParams.textDocument.uri);
+	var luaFile:LuaFile = filesParsed[uri];
+	if( !luaFile) return list;
+	var calls = luaFile.calls;
+	var luaSymbols = getLuaSymbolsRecursively(luaFile.uri);
+
 	for (var i=0; i < calls.length; i++) {
 	 	if (calls[i].range.start.line <= line && line <= calls[i].range.end.line)
 		 {
