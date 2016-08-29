@@ -10,6 +10,7 @@ import {
 	TextDocuments, TextDocument, Diagnostic, DiagnosticSeverity,
 	InitializeParams, InitializeResult, TextDocumentPositionParams,
 	CompletionItem, CompletionItemKind,Location,Range,DocumentSymbolParams,SymbolInformation,
+	DidOpenTextDocumentParams,
 } from 'vscode-languageserver';
 
 
@@ -47,6 +48,15 @@ connection.onInitialize((params): InitializeResult => {
 	}
 });
 
+class FileInfo {
+	document:any;
+	isChanged:boolean
+}
+
+var openedfiles:{ [key:string]:FileInfo } = {}
+
+
+
 class LuaSymbol {
 	type:string;
 	base:string;
@@ -61,27 +71,29 @@ class LuaSymbol {
 } 
 
 
-var calls = [];
-var symbolslist = [];
-var luaSymbols = [] ;
+var calls :{ [key:string]:Array<{base:any,label:string,range:Range}> } = {
+
+	
+};
+var symbolslist:{[key:string]:Array<SymbolInformation>} = {};
+var luaSymbols:{ [key:string]:Array<LuaSymbol> } = {} ;
 var IncludeKeyWords:{ [key:string]:boolean; } = {
 
 	
 };  
-	
+
+var cururi = ""
 // The content of a text document has changed. This event is emitted
 // when the text document first opened or when its content has changed.
 documents.onDidChangeContent((change) => {
-	
-	var textContent = change.document.getText();
-	
-	calls = [];
-	symbolslist = [];
-	luaSymbols = [];
 	var uri = change.document.uri;
-	
+	var textContent = change.document.getText();
+	cururi = uri;
+	symbolslist[uri] = [];
+	calls[uri] = [];
+	luaSymbols[uri] = [];
 	var tb = parser.parse(textContent, {comments:false, locations:true});
-  	parse2(uri, null, tb, false);
+	parse2(uri, null, tb, false);
 	
  });
 
@@ -94,6 +106,62 @@ function GetLoc(obj:any):any {
 	};
 }
 
+function getVariable(tb:any):any {
+	switch (tb.type) {
+		case "Identifier":
+			
+			return {
+				base: null,
+				label:tb.name,
+				range:GetLoc(tb)
+			}
+		case "MemberExpression":
+			return {
+				base: tb.base.name,
+				label:tb.identifier.name,
+				range:GetLoc(tb.identifier)
+			}
+		default:
+			return {}
+	}
+}
+
+
+
+function searchluafile(relpath:string):string {
+	// ?;?.lua;$luapath/?;$luapath/?.lua
+	if (relpath == null) {
+		return null
+	}
+	if (fs.existsSync(relpath)) {
+		return relpath
+	}
+	let relpath_lua = relpath + ".lua"
+	if (fs.existsSync(relpath_lua)) {
+		return relpath_lua
+	}
+
+	let luapath_relpath = path.join(luapath, relpath);
+	if (fs.existsSync(luapath_relpath)) {
+		return luapath_relpath
+	}
+
+	let luapath_relpath_lua = path.join(luapath, relpath_lua);
+	if (fs.existsSync(luapath_relpath_lua)) {
+		return luapath_relpath_lua
+	}
+
+	let workspaceRoot_relpath = path.join(workspaceRoot, relpath);
+	if (fs.existsSync(workspaceRoot_relpath)) {
+		return workspaceRoot_relpath
+	}
+
+	let workspaceRoot_relpath_lua = path.join(workspaceRoot, relpath_lua);
+	if (fs.existsSync(workspaceRoot_relpath_lua)) {
+		return workspaceRoot_relpath_lua
+	}
+	return  null;				
+}
 
 function parse2(uri:string, parent:any, tb:any, onlydefine:boolean) {
 	switch (tb.type) {
@@ -108,7 +176,15 @@ function parse2(uri:string, parent:any, tb:any, onlydefine:boolean) {
 				label:name,
 				range:GetLoc(tb)
 			}
-			calls.push(call);
+			calls[cururi].push(call);
+			break;
+		case "IndexExpression":
+			if (tb.base != null) {
+				parse2(uri, parent, tb.base, onlydefine);			
+			}
+			if (tb.index != null) {
+				parse2(uri, parent, tb.index, onlydefine);
+			}
 			break;
 		case "MemberExpression":
 			if (onlydefine) {
@@ -127,10 +203,38 @@ function parse2(uri:string, parent:any, tb:any, onlydefine:boolean) {
 				label:name,
 				range:GetLoc(tb.identifier)
 			}
-			calls.push(call);
+			calls[cururi].push(call);
 			break;
 		case "LocalStatement":
 		case "AssignmentStatement":
+			if (tb.variables != null) {
+				for (var i=0; i < tb.variables.length; i++) {
+					
+					var variable = getVariable(tb.variables[i])
+					if (tb.init != null && i < tb.init.length) {
+						if (tb.init[i].type == "Identifier" || tb.init[i].type == "MemberExpression" || tb.init[i].type == "CallExpression" ) {
+							parse2(uri, parent, tb.variables[i], onlydefine);
+							continue
+						}
+					}
+					var luaSymbol = new LuaSymbol;
+					if (variable.label == null) {
+						parse2(uri, parent, tb.variables[i], onlydefine);
+						continue
+					}
+					luaSymbol.name = variable.label;
+					luaSymbol.base = variable.base
+					
+					luaSymbol.loc = {
+						uri:uri,
+						range:variable.range
+					};
+					if (luaSymbols[cururi] == null) {
+						luaSymbols[cururi] = [];
+					}
+					luaSymbols[cururi].push(luaSymbol);
+				}
+			}
 			if (tb.init != null) {
 				for (var i=0; i < tb.init.length; i++) {
 					parse2(uri, parent, tb.init[i], onlydefine);
@@ -146,11 +250,11 @@ function parse2(uri:string, parent:any, tb:any, onlydefine:boolean) {
 			break;
 		case "TableKeyString":
 		case "TableKey":
+		case "TableValue":
 			if (tb.value != null) {
 				parse2(uri, parent, tb.value, onlydefine);
 			}
 			break;
-	
 		case "IfStatement":
 			if (tb.clauses != null) {
 				for (var i=0; i < tb.clauses.length; i++) {
@@ -196,21 +300,9 @@ function parse2(uri:string, parent:any, tb:any, onlydefine:boolean) {
 			break;
 		case "CallExpression":
 			if (IncludeKeyWords[tb.base.name] == true) {
-				var relpath = tb.arguments[0].value
-				if (relpath != null) { 
-					var path1 = path.join(luapath, relpath);
-					var path2 = path.join(workspaceRoot, relpath);
-					if (fs.existsSync(path1)) {
-						var text = fs.readFileSync(path1);
-						var uri2 = "file:///" + path1
-						var tb2 = parser.parse(text.toString(), {comments:false, locations:true});
-						parse2(uri2, null, tb2, true);  					
-					} else if(fs.existsSync(path2)) {
-						var text = fs.readFileSync(path2);
-						var uri2 = "file:///" + path2
-						var tb2 = parser.parse(text.toString(), {comments:false, locations:true});
-						parse2(uri2, null, tb2, true);
-					} else if(fs.existsSync(relpath)) {
+				var relpath = searchluafile(tb.arguments[0].value)
+				if (relpath != null) {
+					if(fs.existsSync(relpath)) {
 						var text = fs.readFileSync(relpath);
 						var uri2 = "file:///" + relpath
 						var tb2 = parser.parse(text.toString(), {comments:false, locations:true});
@@ -251,15 +343,15 @@ function parse2(uri:string, parent:any, tb:any, onlydefine:boolean) {
 					uri:uri,
 					range:GetLoc(tb)
 				};
-				
-				
-				var symbol = {
-					name: luaSymbol.label,
-					location: luaSymbol.loc
+				if (luaSymbol.label == null) {
+					console.log("ggs")
 				}
 				
-				luaSymbols.push(luaSymbol);
-				symbolslist.push(symbol);
+				var symbol:SymbolInformation = SymbolInformation.create(luaSymbol.label, 0, GetLoc(tb), uri);
+				luaSymbols[cururi].push(luaSymbol);
+				if (cururi == uri) { 
+					symbolslist[uri].push(symbol);
+				}
 			}		
 			
 			if (tb.body != null) {
@@ -280,6 +372,7 @@ function parse2(uri:string, parent:any, tb:any, onlydefine:boolean) {
 			}
 		case "ElseClause":
 		case "Chunk":
+		
 		default:
 			
 			if (tb.body != null) {
@@ -324,6 +417,7 @@ connection.onDidChangeConfiguration((change) => {
 		IncludeKeyWords = {};
 		IncludeKeyWords["Include"] = true
 		IncludeKeyWords["Require"] = true
+		IncludeKeyWords["require"] = true
 		IncludeKeyWords["dofile"] = true
 		IncludeKeyWords["include"] = true
 	}
@@ -346,42 +440,44 @@ connection.onCompletion((textDocumentPosition: TextDocumentPositionParams): Comp
 	// The pass parameter contains the position of the text document in 
 	// which code complete got requested. For the example we ignore this
 	// info and always provide the same completion items.
+	
+	
 
-	return luaSymbols;
+	return luaSymbols[textDocumentPosition.textDocument.uri];
 	
 });
 
 connection.onDocumentSymbol((documentSymbolParams:DocumentSymbolParams): SymbolInformation[] =>{
-	
-
-  return symbolslist;
+  return symbolslist[documentSymbolParams.textDocument.uri];
 })
 
 connection.onDefinition((textDocumentPositionParams: TextDocumentPositionParams): Location[] => {
 	// var range = documents
+	var uri = textDocumentPositionParams.textDocument.uri
 
 	var list = [];
 	var line = textDocumentPositionParams.position.line;
 	var character = textDocumentPositionParams.position.character;
 	var label;
 	var base;
-	for (var i=0; i < calls.length; i++) {
-	 	if (calls[i].range.start.line <= line && line <= calls[i].range.end.line)
+	
+	for (var i=0; i < calls[uri].length; i++) {
+	 	if (calls[uri][i].range.start.line <= line && line <= calls[uri][i].range.end.line)
 		 {
-			 if (calls[i].range.start.character <= character && character <= calls[i].range.end.character)
+			 if (calls[uri][i].range.start.character <= character && character <= calls[uri][i].range.end.character)
 			 {
-				 label = calls[i].label;
-				 base = calls[i].base;
+				 label = calls[uri][i].label;
+				 base = calls[uri][i].base;
 				 break;
 			 }
 		 }
 	 }
-	 for (var i=0; i < luaSymbols.length; i++) {
-		 if (luaSymbols[i].base == base && luaSymbols[i].name == label) {
+	 for (var i=0; i < luaSymbols[uri].length; i++) {
+		 if (luaSymbols[uri][i].base == base && luaSymbols[uri][i].name == label) {
 			 var loc = {
-				 label:luaSymbols[i].label,
-				 uri:luaSymbols[i].loc.uri,
-				 range:luaSymbols[i].loc.range,
+				 label:luaSymbols[uri][i].label,
+				 uri:luaSymbols[uri][i].loc.uri,
+				 range:luaSymbols[uri][i].loc.range,
 			 }
 			 list.push(loc);
 		 }
@@ -399,24 +495,27 @@ connection.onCompletionResolve((item: CompletionItem): CompletionItem => {
 });
 
 /*
-connection.onDidOpenTextDocument((params) => {
+connection.onDidOpenTextDocument((params:DidOpenTextDocumentParams) => {
 	// A text document got opened in VSCode.
 	// params.uri uniquely identifies the document. For documents store on disk this is a file URI.
 	// params.text the initial full content of the document.
-	connection.console.log(`${params.uri} opened.`);
-});
+	
+	
 
+});
 connection.onDidChangeTextDocument((params) => {
 	// The content of a text document did change in VSCode.
 	// params.uri uniquely identifies the document.
 	// params.contentChanges describe the content changes to the document.
-	connection.console.log(`${params.uri} changed: ${JSON.stringify(params.contentChanges)}`);
-});
 
+
+	
+});
 connection.onDidCloseTextDocument((params) => {
 	// A text document got closed in VSCode.
 	// params.uri uniquely identifies the document.
-	connection.console.log(`${params.uri} closed.`);
+
+	
 });
 */
 

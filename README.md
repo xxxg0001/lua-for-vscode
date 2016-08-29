@@ -4,18 +4,18 @@ Together to improve this extension [GitHub](https://github.com/xxxg0001/lua-for-
 
 # Features  
 support lua4.x upvalue  
-Goto Definition (only function )  
+Goto Definition (function and some variable)  
 List Document Symbols (now only list function)
 
 
 
 # Set your lua path and include keyword
 if you want find defintion from other files, you need set the lua path to workspace settings  
-file search $luapath/ , $workspaceroot/, ./  
-workspace settings
+file search ?, ?.lua, $luapath/?,$luapath/?.lua, $workspaceroot/?, $workspaceroot/?.lua  
+workspace settings  
 ```
 {
-    "luaforvscode.luapath":"C:\\Project"
+    "luaforvscode.luapath":"C:\\Project",
     "luaforvscode.includekeyword":"Include,Require,require,dofile,include"
 } 
 ```
@@ -43,7 +43,8 @@ end
 
 # Issue  
 not support this case now, because hard to know what's type tbsub and the type of tb.new return  
-if you have a solution please tell me, thanks
+if you have a solution please tell me, thanks  
+
 ```
 tb = {}
 function tb:new()
@@ -57,7 +58,23 @@ tbsub = tb:new()
 tbsub:dofunc()
 ```
 
+now not support some upvalue syntax for lua 4.x    
+
+```
+--not support so syntax error
+%variable.member1 = 1
+%variable[member2] = 2 
+
+--add semicolon then support, and can use extension features 
+%variable.member1 = 1;
+%variable[member2] = 2
+``` 
+
 # Change Log  
+Version 0.0.13  
+fixed bug:open more than one files sometime goto definition fail  
+Goto Definition support some variable  
+search path modify to ?, ?.lua, $luapath/?,$luapath/?.lua, $workspaceroot/?, $workspaceroot/?.lua  
 
 Version 0.0.11  
 fixed bug: can't go to definition by if else body
