@@ -48,14 +48,6 @@ connection.onInitialize((params): InitializeResult => {
 	}
 });
 
-class FileInfo {
-	document:any;
-	isChanged:boolean
-}
-
-var openedfiles:{ [key:string]:FileInfo } = {}
-
-
 
 class LuaSymbol {
 	type:string;
@@ -71,32 +63,94 @@ class LuaSymbol {
 } 
 
 
-var calls :{ [key:string]:Array<{base:any,label:string,range:Range}> } = {
+class LuaFile {
+	uri:string;
+	dependency	:string[];
+	calls		:Array<{base:any,label:string,range:Range}>;
+	symbolslist	:SymbolInformation[];
+	luaSymbols	:LuaSymbol[];
 
-	
-};
-var symbolslist:{[key:string]:Array<SymbolInformation>} = {};
-var luaSymbols:{ [key:string]:Array<LuaSymbol> } = {} ;
-var IncludeKeyWords:{ [key:string]:boolean; } = {
+	constructor(_uri:string) {
+		this.uri = _uri;
+		this.reset();
+	}
 
-	
-};  
+	reset():void {
+		this.dependency = [];
+		this.calls = [];
+		this.symbolslist = [];
+		this.luaSymbols = [];
+	}
+}
 
-var cururi = ""
+
+var IncludeKeyWords:{ [key:string]:boolean; } = {};
+var filesParsed:{ [key:string]:LuaFile; } = {};
+
+
+/*var cururi = ""*/
 // The content of a text document has changed. This event is emitted
 // when the text document first opened or when its content has changed.
 documents.onDidChangeContent((change) => {
-	var uri = change.document.uri;
+
 	var textContent = change.document.getText();
-	cururi = uri;
-	symbolslist[uri] = [];
-	calls[uri] = [];
-	luaSymbols[uri] = [];
 	var tb = parser.parse(textContent, {comments:false, locations:true});
-	parse2(uri, null, tb, false);
+
+	var uri = uniformPath(change.document.uri);
+
+	var luaFile = filesParsed[uri];
+	if( !luaFile) {
+		luaFile = new LuaFile(uri);
+		filesParsed[uri] = luaFile;
+	}
+	else {
+		luaFile.reset();
+	}
 	
+	parse2(uri, null, tb, false);
  });
 
+
+function uniformPath(pathUri:string):string {
+	var uri:string = decodeURIComponent(pathUri);
+	uri = uri.replace(/\w:/g, (matchedStr) => {
+		return matchedStr.toLowerCase();
+	});
+	uri = uri.replace(/\\/g, '/');
+	return uri;
+}
+
+function getLuaSymbolsRecursively(uri:string):LuaSymbol[] {
+	var luaFile:LuaFile = filesParsed[uri];
+	if( !luaFile) return [];
+
+	var luaSymbols:LuaSymbol[] = luaFile.luaSymbols;
+	luaFile.dependency.forEach(element => {
+		var dependencySymbols:LuaSymbol[] = getLuaSymbolsRecursively(element);
+		luaSymbols = luaSymbols.concat(dependencySymbols);
+	});
+
+	return luaSymbols;
+}
+
+function parseDependency(parentUri:string, dependencyPath:string) {
+	var text = fs.readFileSync(dependencyPath);
+	var uri2 = "file:///" + dependencyPath;
+	uri2 = uniformPath(uri2);
+
+	var luaFile:LuaFile = filesParsed[uri2];
+	if( !luaFile) {
+		luaFile = new LuaFile(uri2);
+		filesParsed[uri2] = luaFile;
+
+		var tb2 = parser.parse(text.toString(), {comments:false, locations:true});
+		parse2(uri2, null, tb2, true);
+	}
+
+	luaFile = filesParsed[parentUri];
+	if(luaFile.dependency.indexOf(uri2) < 0)
+		luaFile.dependency.push(uri2);
+}
 
 function GetLoc(obj:any):any {
 
@@ -128,37 +182,35 @@ function getVariable(tb:any):any {
 
 
 
-function searchluafile(relpath:string):string {
+function searchluafile(relpath:string, isRequire:boolean = false):string {
 	// ?;?.lua;$luapath/?;$luapath/?.lua
 	if (relpath == null) {
-		return null
-	}
-	if (fs.existsSync(relpath)) {
-		return relpath
-	}
-	let relpath_lua = relpath + ".lua"
-	if (fs.existsSync(relpath_lua)) {
-		return relpath_lua
+		return null;
 	}
 
-	let luapath_relpath = path.join(luapath, relpath);
-	if (fs.existsSync(luapath_relpath)) {
-		return luapath_relpath
+	//If lua file is imported by 'require'.
+	if(isRequire) {
+		relpath = relpath.replace(/\./g, path.sep);
+		relpath = path.normalize(relpath);
 	}
 
-	let luapath_relpath_lua = path.join(luapath, relpath_lua);
-	if (fs.existsSync(luapath_relpath_lua)) {
-		return luapath_relpath_lua
-	}
+	let relpath_lua = relpath + ".lua";
 
-	let workspaceRoot_relpath = path.join(workspaceRoot, relpath);
-	if (fs.existsSync(workspaceRoot_relpath)) {
-		return workspaceRoot_relpath
-	}
+	var pathArr:string[] = [
+		relpath,
+		relpath_lua,
+		path.join(luapath, relpath),
+		path.join(luapath, relpath_lua),
+		path.join(workspaceRoot, relpath),
+		path.join(workspaceRoot, relpath_lua)
+	];
 
-	let workspaceRoot_relpath_lua = path.join(workspaceRoot, relpath_lua);
-	if (fs.existsSync(workspaceRoot_relpath_lua)) {
-		return workspaceRoot_relpath_lua
+	var element:string = null;
+	for (var index = 0; index < pathArr.length; index++) {
+		element = pathArr[index];
+		if(fs.existsSync(element)) {
+			return path.resolve(element);
+		}
 	}
 	return  null;				
 }
@@ -176,7 +228,7 @@ function parse2(uri:string, parent:any, tb:any, onlydefine:boolean) {
 				label:name,
 				range:GetLoc(tb)
 			}
-			calls[cururi].push(call);
+			filesParsed[uri].calls.push(call);
 			break;
 		case "IndexExpression":
 			if (tb.base != null) {
@@ -203,7 +255,7 @@ function parse2(uri:string, parent:any, tb:any, onlydefine:boolean) {
 				label:name,
 				range:GetLoc(tb.identifier)
 			}
-			calls[cururi].push(call);
+			filesParsed[uri].calls.push(call);
 			break;
 		case "LocalStatement":
 		case "AssignmentStatement":
@@ -214,25 +266,23 @@ function parse2(uri:string, parent:any, tb:any, onlydefine:boolean) {
 					if (tb.init != null && i < tb.init.length) {
 						if (tb.init[i].type == "Identifier" || tb.init[i].type == "MemberExpression" || tb.init[i].type == "CallExpression" ) {
 							parse2(uri, parent, tb.variables[i], onlydefine);
-							continue
+							continue;
 						}
 					}
 					var luaSymbol = new LuaSymbol;
 					if (variable.label == null) {
 						parse2(uri, parent, tb.variables[i], onlydefine);
-						continue
+						continue;
 					}
 					luaSymbol.name = variable.label;
-					luaSymbol.base = variable.base
+					luaSymbol.base = variable.base;
 					
 					luaSymbol.loc = {
 						uri:uri,
 						range:variable.range
 					};
-					if (luaSymbols[cururi] == null) {
-						luaSymbols[cururi] = [];
-					}
-					luaSymbols[cururi].push(luaSymbol);
+					
+					filesParsed[uri].luaSymbols.push(luaSymbol);
 				}
 			}
 			if (tb.init != null) {
@@ -295,19 +345,14 @@ function parse2(uri:string, parent:any, tb:any, onlydefine:boolean) {
 			}
 			break;
 		case "CallStatement":
-			parse2(uri, parent, tb.expression, onlydefine)
+			parse2(uri, parent, tb.expression, onlydefine);
 			
 			break;
 		case "CallExpression":
 			if (IncludeKeyWords[tb.base.name] == true) {
-				var relpath = searchluafile(tb.arguments[0].value)
-				if (relpath != null) {
-					if(fs.existsSync(relpath)) {
-						var text = fs.readFileSync(relpath);
-						var uri2 = "file:///" + relpath
-						var tb2 = parser.parse(text.toString(), {comments:false, locations:true});
-						parse2(uri2, null, tb2, true);
-					}
+				var absPath = searchluafile(tb.arguments[0].value, tb.base.name == "require");
+				if (absPath != null) {
+					parseDependency(uri, absPath);
 				}
 			}
 			parse2(uri, parent, tb.base, onlydefine)
@@ -348,10 +393,8 @@ function parse2(uri:string, parent:any, tb:any, onlydefine:boolean) {
 				}
 				
 				var symbol:SymbolInformation = SymbolInformation.create(luaSymbol.label, 0, GetLoc(tb), uri);
-				luaSymbols[cururi].push(luaSymbol);
-				if (cururi == uri) { 
-					symbolslist[uri].push(symbol);
-				}
+				filesParsed[uri].luaSymbols.push(luaSymbol);
+				filesParsed[uri].symbolslist.push(symbol);
 			}		
 			
 			if (tb.body != null) {
@@ -440,44 +483,61 @@ connection.onCompletion((textDocumentPosition: TextDocumentPositionParams): Comp
 	// The pass parameter contains the position of the text document in 
 	// which code complete got requested. For the example we ignore this
 	// info and always provide the same completion items.
-	
-	
+	var uri = uniformPath(textDocumentPosition.textDocument.uri);
+	var luaSymbols = getLuaSymbolsRecursively(uri);
+	var luaSymbolsUnduplicated = {};
+	luaSymbols.forEach(element => {
+		luaSymbolsUnduplicated[element.label] = {label:element.label};
+	});
 
-	return luaSymbols[textDocumentPosition.textDocument.uri];
+	var completionList:CompletionItem[] = [];
+	for (var key in luaSymbolsUnduplicated) {
+		completionList.push(luaSymbolsUnduplicated[key]);
+	}
 	
+	return completionList;
 });
 
 connection.onDocumentSymbol((documentSymbolParams:DocumentSymbolParams): SymbolInformation[] =>{
-  return symbolslist[documentSymbolParams.textDocument.uri];
+	var symbolslist = [];
+	var uri = uniformPath(documentSymbolParams.textDocument.uri);
+	var luaFile:LuaFile = filesParsed[uri];
+	if(luaFile) symbolslist = luaFile.symbolslist;
+
+  	return symbolslist;
 })
 
 connection.onDefinition((textDocumentPositionParams: TextDocumentPositionParams): Location[] => {
-	// var range = documents
-	var uri = textDocumentPositionParams.textDocument.uri
 
 	var list = [];
 	var line = textDocumentPositionParams.position.line;
 	var character = textDocumentPositionParams.position.character;
 	var label;
 	var base;
+
+	var uri = uniformPath(textDocumentPositionParams.textDocument.uri);
+	var luaFile:LuaFile = filesParsed[uri];
+	if( !luaFile) return list;
+	var calls = luaFile.calls;
+	var luaSymbols = getLuaSymbolsRecursively(luaFile.uri);
 	
-	for (var i=0; i < calls[uri].length; i++) {
-	 	if (calls[uri][i].range.start.line <= line && line <= calls[uri][i].range.end.line)
+	for (var i=0; i < calls.length; i++) {
+	 	if (calls[i].range.start.line <= line && line <= calls[i].range.end.line)
 		 {
-			 if (calls[uri][i].range.start.character <= character && character <= calls[uri][i].range.end.character)
+			 if (calls[i].range.start.character <= character && character <= calls[i].range.end.character)
 			 {
-				 label = calls[uri][i].label;
-				 base = calls[uri][i].base;
+				 label = calls[i].label;
+				 base = calls[i].base;
 				 break;
 			 }
 		 }
 	 }
-	 for (var i=0; i < luaSymbols[uri].length; i++) {
-		 if (luaSymbols[uri][i].base == base && luaSymbols[uri][i].name == label) {
+	 for (var i=0; i < luaSymbols.length; i++) {
+		 if (luaSymbols[i].base == base && luaSymbols[i].name == label) {
 			 var loc = {
-				 label:luaSymbols[uri][i].label,
-				 uri:luaSymbols[uri][i].loc.uri,
-				 range:luaSymbols[uri][i].loc.range,
+				 label:luaSymbols[i].label,
+				 uri:luaSymbols[i].loc.uri,
+				 range:luaSymbols[i].loc.range,
 			 }
 			 list.push(loc);
 		 }
@@ -499,8 +559,6 @@ connection.onDidOpenTextDocument((params:DidOpenTextDocumentParams) => {
 	// A text document got opened in VSCode.
 	// params.uri uniquely identifies the document. For documents store on disk this is a file URI.
 	// params.text the initial full content of the document.
-	
-	
 
 });
 connection.onDidChangeTextDocument((params) => {
@@ -508,14 +566,11 @@ connection.onDidChangeTextDocument((params) => {
 	// params.uri uniquely identifies the document.
 	// params.contentChanges describe the content changes to the document.
 
-
-	
 });
 connection.onDidCloseTextDocument((params) => {
 	// A text document got closed in VSCode.
 	// params.uri uniquely identifies the document.
 
-	
 });
 */
 
