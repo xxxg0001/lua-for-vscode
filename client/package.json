@@ -3,7 +3,7 @@
     "description": "support go to defintion and List Document Symbols.",
     "author": "xxxg0001@gmail.com",
     "license": "MIT",
-    "version": "0.0.15",
+    "version": "0.0.16",
     "publisher": "xxxg0001",
     "engines": {
         "vscode": "^0.10.10"
@@ -23,19 +23,6 @@
         "onLanguage:lua"
     ],
     "main": "./out/src/extension",
-    "contributes": {
-        "configuration": {
-            "type": "object",
-            "title": "Example configuration",
-            "properties": {
-                "languageServerExample.maxNumberOfProblems": {
-                    "type": "number",
-                    "default": 100,
-                    "description": "Controls the maximum number of problems produced by the server."
-                }
-            }
-        }
-    },
     "scripts": {
         "vscode:prepublish": "node ./node_modules/vscode/bin/compile",
         "compile": "node ./node_modules/vscode/bin/compile -watch -p ./",

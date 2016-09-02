@@ -94,7 +94,7 @@ var filesParsed:{ [key:string]:LuaFile; } = {};
 documents.onDidChangeContent((change) => {
 
 	var textContent = change.document.getText();
-	var tb = parser.parse(textContent, {comments:false, locations:true});
+	var tb = parser.parse(textContent, {comments:false, locations:true, luaversion:LuaVersion});
 
 	var uri = uniformPath(change.document.uri);
 
@@ -143,7 +143,7 @@ function parseDependency(parentUri:string, dependencyPath:string) {
 		luaFile = new LuaFile(uri2);
 		filesParsed[uri2] = luaFile;
 
-		var tb2 = parser.parse(text.toString(), {comments:false, locations:true});
+		var tb2 = parser.parse(text.toString(), {comments:false, locations:true, luaversion:LuaVersion});
 		parse2(uri2, null, tb2, true);
 	}
 
@@ -242,6 +242,10 @@ function parse2(uri:string, parent:any, tb:any, onlydefine:boolean) {
 			if (onlydefine) {
 				break;
 			}
+			if (tb.base.type == "IndexExpression") {
+				parse2(uri, parent, tb.base, onlydefine);
+				break;
+			}
 			var base = tb.base.name;
 			if (base=="self" && parent != null) {
 				if (parent.identifier.type == "MemberExpression") {
@@ -300,6 +304,9 @@ function parse2(uri:string, parent:any, tb:any, onlydefine:boolean) {
 			break;
 		case "TableKeyString":
 		case "TableKey":
+			if (tb.key != null) {
+				parse2(uri, parent, tb.key, onlydefine);
+			}
 		case "TableValue":
 			if (tb.value != null) {
 				parse2(uri, parent, tb.value, onlydefine);
@@ -437,17 +444,19 @@ interface Settings {
 interface LuaForVsCodeSettings {
 	luapath: string;
 	includekeyword: string;
+	luaversion: number;
 }
 
 // hold the maxNumberOfProblems setting
 let luapath: string;
-
+let LuaVersion: number;
 // The settings have changed. Is send on server activation
 // as well.
 connection.onDidChangeConfiguration((change) => {
 	
 	let settings = <Settings>change.settings;
 	luapath = settings.luaforvscode.luapath;
+	LuaVersion = settings.luaforvscode.luaversion;
 	let includekeyword:string = settings.luaforvscode.includekeyword;
 	let includeKeyWords = includekeyword.split(",");
 	
