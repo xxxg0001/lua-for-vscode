@@ -3,11 +3,13 @@
 Together to improve this extension [GitHub](https://github.com/xxxg0001/lua-for-vscode).
 
 # Features  
-support lua4.x upvalue  
+support lua4.x upvalue   
 Goto Definition (function and some variable)  
 List Document Symbols (now only list function)
 
-
+# About lua version
+### default for lua 5.x  
+### if you use 4.x need set luaforvscode.luaversion to 4    
 
 # Set your lua path and include keyword
 if you want find defintion from other files, you need set the lua path to workspace settings  
@@ -16,7 +18,8 @@ workspace settings
 ```
 {
     "luaforvscode.luapath":"C:\\Project",
-    "luaforvscode.includekeyword":"Include,Require,require,dofile,include"
+    "luaforvscode.includekeyword":"Include,Require,require,dofile,include",
+    "luaforvscode.luaversion":4
 } 
 ```
 
@@ -58,19 +61,11 @@ tbsub = tb:new()
 tbsub:dofunc()
 ```
 
-now not support some upvalue syntax for lua 4.x    
+# Change Log
+Version 0.0.16  
+fixed bugs
+add config for lua version to solve lua4.x parsing
 
-```
---not support so syntax error
-%variable.member1 = 1
-%variable[member2] = 2 
-
---add semicolon then support, and can use extension features 
-%variable.member1 = 1;
-%variable[member2] = 2
-``` 
-
-# Change Log  
 Version 0.0.13  
 fixed bug:open more than one files sometime goto definition fail  
 Goto Definition support some variable  
