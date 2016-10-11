@@ -10,7 +10,7 @@ import {
 	TextDocuments, TextDocument, Diagnostic, DiagnosticSeverity,
 	InitializeParams, InitializeResult, TextDocumentPositionParams,
 	CompletionItem, CompletionItemKind,Location,Range,DocumentSymbolParams,SymbolInformation,
-	DidOpenTextDocumentParams,
+	DidOpenTextDocumentParams,Hover
 } from 'vscode-languageserver';
 
 
@@ -39,9 +39,6 @@ connection.onInitialize((params): InitializeResult => {
 			// Tell the client that the server works in FULL text document sync mode
 			textDocumentSync: documents.syncKind,
 			// Tell the client that the server support code complete
-			completionProvider: {
-				resolveProvider: true
-			},
 			documentSymbolProvider:true,
 			definitionProvider: true
 		}
@@ -65,6 +62,7 @@ class LuaSymbol {
 
 class LuaFile {
 	uri:string;
+	ischanged:boolean;
 	dependency	:string[];
 	calls		:Array<{base:any,label:string,range:Range}>;
 	symbolslist	:SymbolInformation[];
@@ -91,23 +89,19 @@ var filesParsed:{ [key:string]:LuaFile; } = {};
 /*var cururi = ""*/
 // The content of a text document has changed. This event is emitted
 // when the text document first opened or when its content has changed.
+
 documents.onDidChangeContent((change) => {
 
-	var textContent = change.document.getText();
-	var tb = parser.parse(textContent, {comments:false, locations:true, luaversion:LuaVersion});
+	//var textContent = change.document.getText();
+	var uniuri = uniformPath(change.document.uri);
 
-	var uri = uniformPath(change.document.uri);
-
-	var luaFile = filesParsed[uri];
+	var luaFile = filesParsed[uniuri];
 	if( !luaFile) {
-		luaFile = new LuaFile(uri);
-		filesParsed[uri] = luaFile;
+		luaFile = new LuaFile(uniuri);
+		filesParsed[uniuri] = luaFile;
 	}
-	else {
-		luaFile.reset();
-	}
+	luaFile.ischanged = true;
 	
-	parse2(uri, null, tb, false);
  });
 
 
@@ -214,7 +208,27 @@ function searchluafile(relpath:string, isRequire:boolean = false):string {
 	}
 	return  null;				
 }
+function updatefile(uri:string) {
+	var uniuri = uniformPath(uri);
 
+	var luaFile = filesParsed[uniuri];
+	if( !luaFile) {
+		luaFile = new LuaFile(uniuri);
+		filesParsed[uniuri] = luaFile;
+		luaFile.ischanged = false
+		var content = documents.get(uri).getText();
+		var tb = parser.parse(content, {comments:false, locations:true, luaversion:LuaVersion});
+		parse2(uniuri, null, tb, false);
+	}
+	else if(luaFile.ischanged == true) {
+		luaFile.ischanged = false
+		var content = documents.get(uri).getText();
+		var tb = parser.parse(content, {comments:false, locations:true, luaversion:LuaVersion});
+		luaFile.reset();
+		parse2(uniuri, null, tb, false);
+	}
+	
+}
 function parse2(uri:string, parent:any, tb:any, onlydefine:boolean) {
 	switch (tb.type) {
 		case "Identifier":
@@ -458,6 +472,9 @@ connection.onDidChangeConfiguration((change) => {
 	luapath = settings.luaforvscode.luapath;
 	LuaVersion = settings.luaforvscode.luaversion;
 	let includekeyword:string = settings.luaforvscode.includekeyword;
+	if (includekeyword == null) {
+		includekeyword = ""
+	}
 	let includeKeyWords = includekeyword.split(",");
 	
 	if (includeKeyWords.length > 0) {
@@ -487,27 +504,28 @@ connection.onDidChangeWatchedFiles((change) => {
 });
 
 
-// This handler provides the initial list of the completion items.
-connection.onCompletion((textDocumentPosition: TextDocumentPositionParams): CompletionItem[] => {
-	// The pass parameter contains the position of the text document in 
-	// which code complete got requested. For the example we ignore this
-	// info and always provide the same completion items.
-	var uri = uniformPath(textDocumentPosition.textDocument.uri);
-	var luaSymbols = getLuaSymbolsRecursively(uri);
-	var luaSymbolsUnduplicated = {};
-	luaSymbols.forEach(element => {
-		luaSymbolsUnduplicated[element.label] = {label:element.label};
-	});
+// // This handler provides the initial list of the completion items.
+// connection.onCompletion((textDocumentPosition: TextDocumentPositionParams): CompletionItem[] => {
+// 	// The pass parameter contains the position of the text document in 
+// 	// which code complete got requested. For the example we ignore this
+// 	// info and always provide the same completion items.
+// 	var uri = uniformPath(textDocumentPosition.textDocument.uri);
+// 	var luaSymbols = getLuaSymbolsRecursively(uri);
+// 	var luaSymbolsUnduplicated = {};
+// 	luaSymbols.forEach(element => {
+// 		luaSymbolsUnduplicated[element.label] = {label:element.label};
+// 	});
 
-	var completionList:CompletionItem[] = [];
-	for (var key in luaSymbolsUnduplicated) {
-		completionList.push(luaSymbolsUnduplicated[key]);
-	}
+// 	var completionList:CompletionItem[] = [];
+// 	for (var key in luaSymbolsUnduplicated) {
+// 		completionList.push(luaSymbolsUnduplicated[key]);
+// 	}
 	
-	return completionList;
-});
+// 	return completionList;
+// });
 
 connection.onDocumentSymbol((documentSymbolParams:DocumentSymbolParams): SymbolInformation[] =>{
+	updatefile(documentSymbolParams.textDocument.uri);
 	var symbolslist = [];
 	var uri = uniformPath(documentSymbolParams.textDocument.uri);
 	var luaFile:LuaFile = filesParsed[uri];
@@ -517,6 +535,8 @@ connection.onDocumentSymbol((documentSymbolParams:DocumentSymbolParams): SymbolI
 })
 
 connection.onDefinition((textDocumentPositionParams: TextDocumentPositionParams): Location[] => {
+
+	updatefile(textDocumentPositionParams.textDocument.uri);
 
 	var list = [];
 	var line = textDocumentPositionParams.position.line;
@@ -558,10 +578,10 @@ connection.onDefinition((textDocumentPositionParams: TextDocumentPositionParams)
 
 // This handler resolve additional information for the item selected in
 // the completion list.
-connection.onCompletionResolve((item: CompletionItem): CompletionItem => {
+// connection.onCompletionResolve((item: CompletionItem): CompletionItem => {
 	
-	return item;
-});
+// 	return item;
+// });
 
 /*
 connection.onDidOpenTextDocument((params:DidOpenTextDocumentParams) => {
