@@ -10,7 +10,7 @@ import {
 	TextDocuments, TextDocument, Diagnostic, DiagnosticSeverity,
 	InitializeParams, InitializeResult, TextDocumentPositionParams,
 	CompletionItem, CompletionItemKind,Location,Range,DocumentSymbolParams,SymbolInformation,
-	DidOpenTextDocumentParams,Hover
+	DidOpenTextDocumentParams
 } from 'vscode-languageserver';
 
 
@@ -210,23 +210,30 @@ function searchluafile(relpath:string, isRequire:boolean = false):string {
 }
 function updatefile(uri:string) {
 	var uniuri = uniformPath(uri);
-
 	var luaFile = filesParsed[uniuri];
-	if( !luaFile) {
-		luaFile = new LuaFile(uniuri);
-		filesParsed[uniuri] = luaFile;
-		luaFile.ischanged = false
-		var content = documents.get(uri).getText();
-		var tb = parser.parse(content, {comments:false, locations:true, luaversion:LuaVersion});
-		parse2(uniuri, null, tb, false);
+	try
+	{
+		if( !luaFile) {
+			luaFile = new LuaFile(uniuri);
+			filesParsed[uniuri] = luaFile;
+			luaFile.ischanged = false
+			var content = documents.get(uri).getText();
+			var tb = parser.parse(content, {comments:false, locations:true, luaversion:LuaVersion});
+			parse2(uniuri, null, tb, false);
+		}
+		else if(luaFile.ischanged == true) {
+			luaFile.ischanged = false
+			var content = documents.get(uri).getText();
+			var tb = parser.parse(content, {comments:false, locations:true, luaversion:LuaVersion});
+			luaFile.reset();
+			parse2(uniuri, null, tb, false);
+		}
 	}
-	else if(luaFile.ischanged == true) {
-		luaFile.ischanged = false
-		var content = documents.get(uri).getText();
-		var tb = parser.parse(content, {comments:false, locations:true, luaversion:LuaVersion});
-		luaFile.reset();
-		parse2(uniuri, null, tb, false);
+	catch(err)
+	{
+		connection.window.showErrorMessage(`${err} : ${uri}`);
 	}
+	
 	
 }
 function parse2(uri:string, parent:any, tb:any, onlydefine:boolean) {

@@ -5,7 +5,7 @@
 'use strict';
 
 import * as path from 'path';
-import { Uri, workspace, Disposable, ExtensionContext } from 'vscode';
+import { Uri, workspace, Disposable, ExtensionContext, window } from 'vscode';
 import { LanguageClient, LanguageClientOptions, SettingMonitor, ServerOptions, TransportKind } from 'vscode-languageclient';
 
 export function activate(context: ExtensionContext) {

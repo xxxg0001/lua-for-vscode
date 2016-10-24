@@ -61,10 +61,16 @@ tbsub = tb:new()
 tbsub:dofunc()
 ```
 
-# Change Log
+# Change Log  
+Version 0.0.18  
+show lua script error to vscode.windows  
+
+Version 0.0.17    
+only parsing script when go to definition or show symbol  
+
 Version 0.0.16  
-fixed bugs
-add config for lua version to solve lua4.x parsing
+fixed bugs  
+add config for lua version to solve lua4.x parsing  
 
 Version 0.0.13  
 fixed bug:open more than one files sometime goto definition fail  
