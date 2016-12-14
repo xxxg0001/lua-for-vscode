@@ -131,7 +131,7 @@ function parseDependency(parentUri:string, dependencyPath:string) {
 	var text = fs.readFileSync(dependencyPath);
 	var uri2 = "file:///" + dependencyPath;
 	uri2 = uniformPath(uri2);
-
+	
 	var luaFile:LuaFile = filesParsed[uri2];
 	if( !luaFile) {
 		luaFile = new LuaFile(uri2);
@@ -176,7 +176,7 @@ function getVariable(tb:any):any {
 
 
 
-function searchluafile(relpath:string, isRequire:boolean = false):string {
+function searchluafile(relpath:string, isRequire:boolean = false):string[] {
 	// ?;?.lua;$luapath/?;$luapath/?.lua
 	if (relpath == null) {
 		return null;
@@ -193,20 +193,24 @@ function searchluafile(relpath:string, isRequire:boolean = false):string {
 	var pathArr:string[] = [
 		relpath,
 		relpath_lua,
-		path.join(luapath, relpath),
-		path.join(luapath, relpath_lua),
 		path.join(workspaceRoot, relpath),
 		path.join(workspaceRoot, relpath_lua)
 	];
-
+	
+	for (var i=0; i < luapaths.length; i++) {
+		pathArr.push(path.join(luapaths[i], relpath))
+		pathArr.push(path.join(luapaths[i], relpath_lua))
+	}
+	
 	var element:string = null;
+	var list:string[] = []
 	for (var index = 0; index < pathArr.length; index++) {
 		element = pathArr[index];
 		if(fs.existsSync(element)) {
-			return path.resolve(element);
+			list.push(path.resolve(element));
 		}
 	}
-	return  null;				
+	return  list;				
 }
 function updatefile(uri:string) {
 	var uniuri = uniformPath(uri);
@@ -269,7 +273,7 @@ function parse2(uri:string, parent:any, tb:any, onlydefine:boolean) {
 			}
 			var base = tb.base.name;
 			if (base=="self" && parent != null) {
-				if (parent.identifier.type == "MemberExpression") {
+				if (parent.identifier != null && parent.identifier.type == "MemberExpression") {
 					base = parent.identifier.base.name						
 				}
 			}
@@ -378,9 +382,9 @@ function parse2(uri:string, parent:any, tb:any, onlydefine:boolean) {
 			break;
 		case "CallExpression":
 			if (IncludeKeyWords[tb.base.name] == true) {
-				var absPath = searchluafile(tb.arguments[0].value, tb.base.name == "require");
-				if (absPath != null) {
-					parseDependency(uri, absPath);
+				var absPaths = searchluafile(tb.arguments[0].value, tb.base.name == "require");
+				for (var i=0; i < absPaths.length;i++) {
+					parseDependency(uri, absPaths[i]);
 				}
 			}
 			parse2(uri, parent, tb.base, onlydefine)
@@ -408,6 +412,7 @@ function parse2(uri:string, parent:any, tb:any, onlydefine:boolean) {
 			if (tb.identifier != null) {
 				luaSymbol.name = tb.identifier.name;
 				luaSymbol.base = null
+				
 				if (tb.identifier.type == "MemberExpression") {
 					luaSymbol.base = tb.identifier.base.name
 					luaSymbol.name = tb.identifier.identifier.name;
@@ -417,7 +422,7 @@ function parse2(uri:string, parent:any, tb:any, onlydefine:boolean) {
 					range:GetLoc(tb)
 				};
 				if (luaSymbol.label == null) {
-					console.log("ggs")
+					
 				}
 				
 				var symbol:SymbolInformation = SymbolInformation.create(luaSymbol.label, 0, GetLoc(tb), uri);
@@ -469,14 +474,17 @@ interface LuaForVsCodeSettings {
 }
 
 // hold the maxNumberOfProblems setting
-let luapath: string;
+var luapaths: string[] = [];
 let LuaVersion: number;
 // The settings have changed. Is send on server activation
 // as well.
 connection.onDidChangeConfiguration((change) => {
 	
 	let settings = <Settings>change.settings;
-	luapath = settings.luaforvscode.luapath;
+	luapaths = settings.luaforvscode.luapath.split(";");
+
+	
+	
 	LuaVersion = settings.luaforvscode.luaversion;
 	let includekeyword:string = settings.luaforvscode.includekeyword;
 	if (includekeyword == null) {
@@ -509,27 +517,6 @@ connection.onDidChangeWatchedFiles((change) => {
 	// Monitored files have change in VSCode
 	//connection.console.log('We recevied an file change event');
 });
-
-
-// // This handler provides the initial list of the completion items.
-// connection.onCompletion((textDocumentPosition: TextDocumentPositionParams): CompletionItem[] => {
-// 	// The pass parameter contains the position of the text document in 
-// 	// which code complete got requested. For the example we ignore this
-// 	// info and always provide the same completion items.
-// 	var uri = uniformPath(textDocumentPosition.textDocument.uri);
-// 	var luaSymbols = getLuaSymbolsRecursively(uri);
-// 	var luaSymbolsUnduplicated = {};
-// 	luaSymbols.forEach(element => {
-// 		luaSymbolsUnduplicated[element.label] = {label:element.label};
-// 	});
-
-// 	var completionList:CompletionItem[] = [];
-// 	for (var key in luaSymbolsUnduplicated) {
-// 		completionList.push(luaSymbolsUnduplicated[key]);
-// 	}
-	
-// 	return completionList;
-// });
 
 connection.onDocumentSymbol((documentSymbolParams:DocumentSymbolParams): SymbolInformation[] =>{
 	updatefile(documentSymbolParams.textDocument.uri);

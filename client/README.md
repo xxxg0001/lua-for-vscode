@@ -17,7 +17,7 @@ file search ?, ?.lua, $luapath/?,$luapath/?.lua, $workspaceroot/?, $workspaceroo
 workspace settings  
 ```
 {
-    "luaforvscode.luapath":"C:\\Project",
+    "luaforvscode.luapath":"C:\\Project;C:\\luapath2",
     "luaforvscode.includekeyword":"Include,Require,require,dofile,include",
     "luaforvscode.luaversion":4
 } 
@@ -62,6 +62,10 @@ tbsub:dofunc()
 ```
 
 # Change Log  
+Version 0.0.19  
+Supports multiple lua paths  
+skip find 'self' type on anonymous function (temporary)  
+
 Version 0.0.18  
 show lua script error to vscode.windows  
 
