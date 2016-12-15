@@ -206,7 +206,7 @@ function searchluafile(relpath:string, isRequire:boolean = false):string[] {
 	var list:string[] = []
 	for (var index = 0; index < pathArr.length; index++) {
 		element = pathArr[index];
-		if(fs.existsSync(element)) {
+		if(fs.existsSync(element) && list.indexOf(path.resolve(element)) < 0) {
 			list.push(path.resolve(element));
 		}
 	}
@@ -223,24 +223,34 @@ function updatefile(uri:string) {
 			luaFile.ischanged = false
 			var content = documents.get(uri).getText();
 			var tb = parser.parse(content, {comments:false, locations:true, luaversion:LuaVersion});
-			parse2(uniuri, null, tb, false);
+			parse2(uniuri, [], tb, false);
 		}
 		else if(luaFile.ischanged == true) {
 			luaFile.ischanged = false
 			var content = documents.get(uri).getText();
 			var tb = parser.parse(content, {comments:false, locations:true, luaversion:LuaVersion});
 			luaFile.reset();
-			parse2(uniuri, null, tb, false);
+			parse2(uniuri, [], tb, false);
 		}
 	}
 	catch(err)
 	{
-		connection.window.showErrorMessage(`${err} : ${uri}`);
-	}
+	 	connection.window.showErrorMessage(`${err} : ${uri}`);
+	 }
 	
 	
 }
-function parse2(uri:string, parent:any, tb:any, onlydefine:boolean) {
+
+function findParent(parent:any[]):any {
+	
+	for (var i=0; i < parent.length; i++) {
+		if (parent[i] != null && parent[i].identifier != null) {
+			return parent[i]
+		}
+	}
+}
+
+function parse2(uri:string, parentStack:any[], tb:any, onlydefine:boolean) {
 	switch (tb.type) {
 		case "Identifier":
 			if (onlydefine) {
@@ -257,10 +267,10 @@ function parse2(uri:string, parent:any, tb:any, onlydefine:boolean) {
 			break;
 		case "IndexExpression":
 			if (tb.base != null) {
-				parse2(uri, parent, tb.base, onlydefine);			
+				parse2(uri, parentStack, tb.base, onlydefine);			
 			}
 			if (tb.index != null) {
-				parse2(uri, parent, tb.index, onlydefine);
+				parse2(uri, parentStack, tb.index, onlydefine);
 			}
 			break;
 		case "MemberExpression":
@@ -268,13 +278,14 @@ function parse2(uri:string, parent:any, tb:any, onlydefine:boolean) {
 				break;
 			}
 			if (tb.base.type == "IndexExpression") {
-				parse2(uri, parent, tb.base, onlydefine);
+				parse2(uri, parentStack, tb.base, onlydefine);
 				break;
 			}
 			var base = tb.base.name;
-			if (base=="self" && parent != null) {
-				if (parent.identifier != null && parent.identifier.type == "MemberExpression") {
-					base = parent.identifier.base.name						
+			if (base=="self" && parentStack != null) {
+				var parent = findParent(parentStack)
+				if (parent != null && parent.identifier != null && parent.identifier.type == "MemberExpression") {
+					base = parent.identifier.base.name				
 				}
 			}
 			var name = tb.identifier.name;
@@ -290,17 +301,16 @@ function parse2(uri:string, parent:any, tb:any, onlydefine:boolean) {
 		case "AssignmentStatement":
 			if (tb.variables != null) {
 				for (var i=0; i < tb.variables.length; i++) {
-					
 					var variable = getVariable(tb.variables[i])
 					if (tb.init != null && i < tb.init.length) {
 						if (tb.init[i].type == "Identifier" || tb.init[i].type == "MemberExpression" || tb.init[i].type == "CallExpression" ) {
-							parse2(uri, parent, tb.variables[i], onlydefine);
+							parse2(uri, parentStack, tb.variables[i], onlydefine);
 							continue;
 						}
 					}
 					var luaSymbol = new LuaSymbol;
 					if (variable.label == null) {
-						parse2(uri, parent, tb.variables[i], onlydefine);
+						parse2(uri, parentStack, tb.variables[i], onlydefine);
 						continue;
 					}
 					luaSymbol.name = variable.label;
@@ -316,95 +326,98 @@ function parse2(uri:string, parent:any, tb:any, onlydefine:boolean) {
 			}
 			if (tb.init != null) {
 				for (var i=0; i < tb.init.length; i++) {
-					parse2(uri, parent, tb.init[i], onlydefine);
+					parse2(uri, parentStack, tb.init[i], onlydefine);
 				}
 			}
 			break;
 		case "TableConstructorExpression":
 			if (tb.fields != null) {
 				for (var i=0; i < tb.fields.length; i++) {
-					parse2(uri, parent, tb.fields[i], onlydefine);
+					parse2(uri, parentStack, tb.fields[i], onlydefine);
 				}
 			}
 			break;
 		case "TableKeyString":
 		case "TableKey":
 			if (tb.key != null) {
-				parse2(uri, parent, tb.key, onlydefine);
+				parse2(uri, parentStack, tb.key, onlydefine);
 			}
 		case "TableValue":
 			if (tb.value != null) {
-				parse2(uri, parent, tb.value, onlydefine);
+				parse2(uri, parentStack, tb.value, onlydefine);
 			}
 			break;
 		case "IfStatement":
 			if (tb.clauses != null) {
 				for (var i=0; i < tb.clauses.length; i++) {
-					parse2(uri, parent, tb.clauses[i], onlydefine);
+					parse2(uri, parentStack, tb.clauses[i], onlydefine);
 				}
 			}
 			break;			
 		case "ForNumericStatement":
 			if (tb.start != null) {
-				parse2(uri, parent, tb.start, onlydefine);
+				parse2(uri, parentStack, tb.start, onlydefine);
 			}
 			if (tb.end != null) {
-				parse2(uri, parent, tb.end, onlydefine);
+				parse2(uri, parentStack, tb.end, onlydefine);
 			}
 			if (tb.body != null) {
 				for (var i=0; i < tb.body.length; i++) {
-					parse2(uri, parent, tb.body[i], onlydefine);
+					parse2(uri, parentStack, tb.body[i], onlydefine);
 				}
 			}
 			break;
 		case "ForGenericStatement":
 			if (tb.iterators != null) {
 				for (var i=0; i < tb.iterators.length; i++) {
-					parse2(uri, parent, tb.iterators[i], onlydefine);
+					parse2(uri, parentStack, tb.iterators[i], onlydefine);
 				}
 			}
 			if (tb.body != null) {
 				for (var i=0; i < tb.body.length; i++) {
-					parse2(uri, parent, tb.body[i], onlydefine);
+					parse2(uri, parentStack, tb.body[i], onlydefine);
 				}
 			}
 			break;
 		case "ReturnStatement":
 			if (tb.arguments != null) {
 				for (var i=0; i < tb.arguments.length; i++) {
-					parse2(uri, parent, tb.arguments[i], onlydefine);
+					parse2(uri, parentStack, tb.arguments[i], onlydefine);
 				}
 			}
 			break;
 		case "CallStatement":
-			parse2(uri, parent, tb.expression, onlydefine);
+			parse2(uri, parentStack, tb.expression, onlydefine);
 			
 			break;
 		case "CallExpression":
 			if (IncludeKeyWords[tb.base.name] == true) {
 				var absPaths = searchluafile(tb.arguments[0].value, tb.base.name == "require");
-				for (var i=0; i < absPaths.length;i++) {
-					parseDependency(uri, absPaths[i]);
+				if (absPaths != null) {
+					for (var i=0; i < absPaths.length;i++) {
+						parseDependency(uri, absPaths[i]);
+					}
 				}
+				
 			}
-			parse2(uri, parent, tb.base, onlydefine)
+			parse2(uri, parentStack, tb.base, onlydefine)
 			if (tb.arguments != null) {
 				for (var i=0; i < tb.arguments.length; i++) {
-					parse2(uri, parent, tb.arguments[i], onlydefine);
+					parse2(uri, parentStack, tb.arguments[i], onlydefine);
 				}
 			}
 			break;
 		case "BinaryExpression":
 		case "LogicalExpression":
 			if (tb.left != null) {
-				parse2(uri, parent, tb.left, onlydefine);
+				parse2(uri, parentStack, tb.left, onlydefine);
 			}
 			if (tb.right != null) {
-				parse2(uri, parent, tb.right, onlydefine);
+				parse2(uri, parentStack, tb.right, onlydefine);
 			}
 			break;
 		case "UnaryExpression":
-			if (tb.argument != null) parse2(uri, parent, tb.argument, onlydefine);
+			if (tb.argument != null) parse2(uri, parentStack, tb.argument, onlydefine);
 			break;
 		case "FunctionDeclaration":
 			var luaSymbol = new LuaSymbol;
@@ -432,7 +445,8 @@ function parse2(uri:string, parent:any, tb:any, onlydefine:boolean) {
 			
 			if (tb.body != null) {
 				for (var i=0; i < tb.body.length; i++) {
-					parse2(uri, tb, tb.body[i], onlydefine);
+					var stack2 = [tb].concat(parentStack)
+					parse2(uri, stack2, tb.body[i], onlydefine);
 					
 				}
 			}
@@ -444,7 +458,7 @@ function parse2(uri:string, parent:any, tb:any, onlydefine:boolean) {
 		case "IfClause":
 		case "ElseifClause":
 			if (tb.condition != null) {
-				parse2(uri, parent, tb.condition, onlydefine);
+				parse2(uri, parentStack, tb.condition, onlydefine);
 			}
 		case "ElseClause":
 		case "Chunk":
@@ -453,7 +467,7 @@ function parse2(uri:string, parent:any, tb:any, onlydefine:boolean) {
 			
 			if (tb.body != null) {
 				for (var i=0; i < tb.body.length; i++) {
-					parse2(uri, parent, tb.body[i], onlydefine);
+					parse2(uri, parentStack, tb.body[i], onlydefine);
 				}
 			}
 			break;
@@ -481,8 +495,10 @@ let LuaVersion: number;
 connection.onDidChangeConfiguration((change) => {
 	
 	let settings = <Settings>change.settings;
-	luapaths = settings.luaforvscode.luapath.split(";");
-
+	let luapathconfig = settings.luaforvscode.luapath
+	if (luapathconfig != null) {
+		luapaths = luapathconfig.split(";");
+	}
 	
 	
 	LuaVersion = settings.luaforvscode.luaversion;

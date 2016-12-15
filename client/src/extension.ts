@@ -21,7 +21,6 @@ export function activate(context: ExtensionContext) {
 		run : { module: serverModule, transport: TransportKind.ipc},
 		debug: { module: serverModule, transport: TransportKind.ipc, options: debugOptions }
 	}
-	
 	// Options to control the language client
 	let clientOptions: LanguageClientOptions = {
 		// Register the server for plain text documents
@@ -33,6 +32,7 @@ export function activate(context: ExtensionContext) {
 			fileEvents: workspace.createFileSystemWatcher('**/.clientrc')
 		}
 	}
+
 	
 	// Create the language client and start the client.
 	let disposable = new LanguageClient('lua-for-vscode', serverOptions, clientOptions).start();

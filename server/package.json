@@ -1,18 +1,18 @@
 {
   "name": "lua-for-vscode-server",
   "description": "implementation of a language server in node.",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "author": "xxxg0001@gmail.com",
   "license": "MIT",
   "engines": {
     "node": "*"
   },
   "dependencies": {
-    "vscode-languageserver": "^2.2.0",
+    "vscode-languageserver": "^2.6.0",
     "@xxxg0001/luaparse": "^0.2.3"
   },
   "devDependencies": {
-    "typescript": "^1.8.9"
+    "typescript": "^2.1.4"
   },
   "scripts": {
     "compile": "installServerIntoExtension ../client ./package.json ./tsconfig.json && tsc -p .",

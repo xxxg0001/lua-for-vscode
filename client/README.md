@@ -62,9 +62,13 @@ tbsub:dofunc()
 ```
 
 # Change Log  
+Version 0.0.22  
+fixed some error  
+restore find 'self' on anonymous function  
+
 Version 0.0.19  
 Supports multiple lua paths  
-skip find 'self' type on anonymous function (temporary)  
+skip find 'self' on anonymous function (temporary)  
 
 Version 0.0.18  
 show lua script error to vscode.windows  
