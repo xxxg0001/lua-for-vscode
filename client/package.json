@@ -3,7 +3,7 @@
     "description": "support go to defintion and List Document Symbols.",
     "author": "xxxg0001@gmail.com",
     "license": "MIT",
-    "version": "0.0.22",
+    "version": "0.0.23",
     "publisher": "xxxg0001",
     "engines": {
         "vscode": "^1.4.0"

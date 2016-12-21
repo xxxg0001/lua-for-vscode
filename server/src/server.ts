@@ -10,7 +10,7 @@ import {
 	TextDocuments, TextDocument, Diagnostic, DiagnosticSeverity,
 	InitializeParams, InitializeResult, TextDocumentPositionParams,
 	CompletionItem, CompletionItemKind,Location,Range,DocumentSymbolParams,SymbolInformation,
-	DidOpenTextDocumentParams
+	DidOpenTextDocumentParams,DidSaveTextDocumentParams
 } from 'vscode-languageserver';
 
 
@@ -99,6 +99,10 @@ documents.onDidChangeContent((change) => {
 	if( !luaFile) {
 		luaFile = new LuaFile(uniuri);
 		filesParsed[uniuri] = luaFile;
+		luaFile.ischanged = false
+		var content = documents.get(change.document.uri).getText();
+		var tb = parser.parse(content, {comments:false, locations:true, luaversion:LuaVersion});
+		parse2(uniuri, [], tb, false);
 	}
 	luaFile.ischanged = true;
 	
@@ -212,12 +216,12 @@ function searchluafile(relpath:string, isRequire:boolean = false):string[] {
 	}
 	return  list;				
 }
-function updatefile(uri:string) {
+function updatefile(uri:string, isSaving:boolean) {
 	var uniuri = uniformPath(uri);
 	var luaFile = filesParsed[uniuri];
 	try
 	{
-		if( !luaFile) {
+		if( luaFile == null) {
 			luaFile = new LuaFile(uniuri);
 			filesParsed[uniuri] = luaFile;
 			luaFile.ischanged = false
@@ -225,7 +229,7 @@ function updatefile(uri:string) {
 			var tb = parser.parse(content, {comments:false, locations:true, luaversion:LuaVersion});
 			parse2(uniuri, [], tb, false);
 		}
-		else if(luaFile.ischanged == true) {
+		else if(luaFile.ischanged == true && isSaving == true) {
 			luaFile.ischanged = false
 			var content = documents.get(uri).getText();
 			var tb = parser.parse(content, {comments:false, locations:true, luaversion:LuaVersion});
@@ -235,10 +239,9 @@ function updatefile(uri:string) {
 	}
 	catch(err)
 	{
-	 	connection.window.showErrorMessage(`${err} : ${uri}`);
+		console.log(`${err} : ${uri}`)
+	 	//connection.window.showErrorMessage(`${err} : ${uri}`);
 	 }
-	
-	
 }
 
 function findParent(parent:any[]):any {
@@ -535,7 +538,7 @@ connection.onDidChangeWatchedFiles((change) => {
 });
 
 connection.onDocumentSymbol((documentSymbolParams:DocumentSymbolParams): SymbolInformation[] =>{
-	updatefile(documentSymbolParams.textDocument.uri);
+	updatefile(documentSymbolParams.textDocument.uri, false);
 	var symbolslist = [];
 	var uri = uniformPath(documentSymbolParams.textDocument.uri);
 	var luaFile:LuaFile = filesParsed[uri];
@@ -546,7 +549,7 @@ connection.onDocumentSymbol((documentSymbolParams:DocumentSymbolParams): SymbolI
 
 connection.onDefinition((textDocumentPositionParams: TextDocumentPositionParams): Location[] => {
 
-	updatefile(textDocumentPositionParams.textDocument.uri);
+	updatefile(textDocumentPositionParams.textDocument.uri, false);
 
 	var list = [];
 	var line = textDocumentPositionParams.position.line;
@@ -593,18 +596,30 @@ connection.onDefinition((textDocumentPositionParams: TextDocumentPositionParams)
 // 	return item;
 // });
 
-/*
-connection.onDidOpenTextDocument((params:DidOpenTextDocumentParams) => {
-	// A text document got opened in VSCode.
-	// params.uri uniquely identifies the document. For documents store on disk this is a file URI.
-	// params.text the initial full content of the document.
-
+connection.onDidSaveTextDocument((params:DidSaveTextDocumentParams) =>{
+	updatefile(params.textDocument.uri, true);
 });
+
+// connection.onDidOpenTextDocument((params:DidOpenTextDocumentParams) => {
+// 	// A text document got opened in VSCode.
+// 	// params.uri uniquely identifies the document. For documents store on disk this is a file URI.
+// 	// params.text the initial full content of the document.
+	
+// });
+
+/*
 connection.onDidChangeTextDocument((params) => {
 	// The content of a text document did change in VSCode.
 	// params.uri uniquely identifies the document.
 	// params.contentChanges describe the content changes to the document.
+	var uniuri = uniformPath(change.document.uri);
 
+	var luaFile = filesParsed[uniuri];
+	if( !luaFile) {
+		luaFile = new LuaFile(uniuri);
+		filesParsed[uniuri] = luaFile;
+	}
+	luaFile.ischanged = true;
 });
 connection.onDidCloseTextDocument((params) => {
 	// A text document got closed in VSCode.
